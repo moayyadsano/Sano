@@ -442,24 +442,17 @@ async function askAI(systemPrompt, userMsg) {
   const combinedMsg = systemPrompt + "\n\n---\n\n" + userMsg;
   let res, rawText, data;
   try {
-    res = await fetch("https://api.anthropic.com/v1/messages", {
+    res = await fetch("/api/claude", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 800,
-        messages: [{ role: "user", content: combinedMsg }],
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: combinedMsg }),
     });
   } catch(e) { throw new Error("Fetch failed: " + e.message); }
   try { rawText = await res.text(); } catch(e) { throw new Error("Read failed: " + e.message); }
   try { data = JSON.parse(rawText); } catch(e) { throw new Error("Status " + res.status + " non-JSON: " + rawText.slice(0,200)); }
   if (!res.ok) throw new Error("API " + res.status + ": " + rawText.slice(0,300));
-  if (!data.content || !Array.isArray(data.content)) throw new Error("Bad shape: " + rawText.slice(0,300));
-  return data.content.map(function(b) { return b.text || ""; }).join("").trim();
+  if (!data.text) throw new Error("Bad shape: " + rawText.slice(0,300));
+  return data.text;
 }
 function parseLines(text) {
   const result = {};
