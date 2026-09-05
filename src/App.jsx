@@ -477,6 +477,17 @@ import {
   buildExerciseSupplementsPrompt,
   PROMPT_BUNDLE_VERSION,
 } from "./lib/prompts/index.js";
+import {
+  parseOverview,
+  parseFindings,
+  parseTargets,
+  parseActionPlan,
+  parseNutrition,
+  parseExercise,
+  parseSupplements,
+  parseFollowUp,
+  PARSER_VERSION,
+} from "./lib/parser.js";
 
 // ─── AI call wrappers ─────────────────────────────────────────────────────────
 // These functions call askAI with the correct prompt and parse the response.
@@ -484,11 +495,12 @@ import {
 
 async function getOverview(ctx) {
   const txt = await askAI(SYS, buildOverviewPrompt(ctx));
-  const lines = parseLines(txt);
+  const parsed = parseOverview(txt);
   return {
-    summary: lines.summary || "Insufficient data for full clinical overview.",
-    longevityNote: lines.longevity || "More data needed for longevity assessment.",
+    summary:       parsed.summary,
+    longevityNote: parsed.longevityNote,
     promptVersion: PROMPT_BUNDLE_VERSION,
+    parserVersion: PARSER_VERSION,
     scores: { overall:null, cardiovascular:null, metabolic:null, hormonal:null, longevity:null, physical:null },
     scoresBasis: { overall:"See domain coverage dials", cardiovascular:"See domain coverage dials", metabolic:"See domain coverage dials", hormonal:"See domain coverage dials", longevity:"See domain coverage dials", physical:"See domain coverage dials" },
     phenoAgeEligible: false,
@@ -498,89 +510,27 @@ async function getOverview(ctx) {
 
 async function getFindings(ctx) {
   const txt = await askAI(SYS, buildFindingsPrompt(ctx));
-  const lines_arr = txt.split("\n").map(function(l) { return l.trim(); });
-
-  const findings = lines_arr
-    .filter(function(l) { return l.includes("|") && ["Critical","High","Medium","Low"].some(function(p) { return l.startsWith(p); }); })
-    .map(function(l) {
-      const parts = l.split("|").map(function(p) { return p.trim(); });
-      return {
-        priority: ["Critical","High","Medium","Low"].includes(parts[0]) ? parts[0] : "Medium",
-        title: parts[1] || "Finding",
-        detail: parts[2] || "",
-        inputsUsed: parts[3] || ""
-      };
-    });
-
-  const targets = lines_arr
-    .filter(function(l) { return l.includes("|") && !["Critical","High","Medium","Low"].some(function(p) { return l.startsWith(p); }); })
-    .map(function(l) {
-      const p = l.split("|").map(function(x) { return x.trim(); });
-      return { biomarker:p[0]||"", current:p[1]||"", optimal:p[2]||"", targetType:p[3]||"", timeline:p[4]||"", source:p[5]||"" };
-    })
-    .filter(function(t) { return t.biomarker && t.biomarker.length > 1; });
-
   return {
-    findings: findings.length ? findings : [{title:"Insufficient data",priority:"Low",detail:"Please enter lab values to generate clinical findings.",inputsUsed:"None"}],
-    targets
+    findings: parseFindings(txt),
+    targets:  parseTargets(txt),
   };
 }
 
 async function getActionNutrition(ctx) {
   const txt = await askAI(SYS, buildActionPrompt(ctx));
-  const now = [], three = [], six = [];
-  const principles = [], prioritize = [], minimize = [];
-  let approach = "", source = "";
-
-  txt.split("\n").forEach(function(l) {
-    l = l.trim();
-    if (l.startsWith("NOW:"))       now.push(l.replace("NOW:","").trim());
-    else if (l.startsWith("3MON:")) three.push(l.replace("3MON:","").trim());
-    else if (l.startsWith("6MON:")) six.push(l.replace("6MON:","").trim());
-    else if (l.startsWith("APPROACH:"))  approach = l.replace("APPROACH:","").trim();
-    else if (l.startsWith("PRINCIPLE:")) principles.push(l.replace("PRINCIPLE:","").trim());
-    else if (l.startsWith("EAT:"))       prioritize.push(l.replace("EAT:","").trim());
-    else if (l.startsWith("AVOID:"))     minimize.push(l.replace("AVOID:","").trim());
-    else if (l.startsWith("SOURCE:"))    source = l.replace("SOURCE:","").trim();
-  });
-
   return {
-    actionPlan: { now, threeMonths: three, sixMonths: six },
-    nutrition: { approach, principles, prioritize, minimize, source }
+    actionPlan: parseActionPlan(txt),
+    nutrition:  parseNutrition(txt),
   };
 }
 
 async function getExerciseSupplements(ctx) {
   const txt = await askAI(SYS, buildExerciseSupplementsPrompt(ctx));
-  let blueprint = "";
-  const zones = [], supplements = [];
-  const followUp = {};
-
-  txt.split("\n").forEach(function(l) {
-    l = l.trim();
-    if (l.startsWith("BLUEPRINT:")) {
-      blueprint = l.replace("BLUEPRINT:","").trim();
-    } else if (l.startsWith("ZONE:")) {
-      const p = l.replace("ZONE:","").split("|").map(function(x) { return x.trim(); });
-      if (p.length >= 4) zones.push({ modality:p[0], frequency:p[1], duration:p[2], why:p[3] });
-    } else if (l.startsWith("SUPP:")) {
-      const p = l.replace("SUPP:","").split("|").map(function(x) { return x.trim(); });
-      if (p[0]) supplements.push({
-        name: p[0].replace(/iron bisglycinate/gi, "Iron supplement"),
-        timing: p[1] || "",
-        rationale: p[2] || "",
-        interaction: p[3] || "None identified"
-      });
-    } else if (l.startsWith("FOLLOWUP:")) {
-      const v = l.replace("FOLLOWUP:","").trim();
-      if (v.startsWith("2 week"))      followUp.twoWeeks    = v.replace(/^2 weeks? - /i,"");
-      else if (v.startsWith("1 month"))followUp.oneMonth    = v.replace(/^1 month - /i,"");
-      else if (v.startsWith("3 month"))followUp.threeMonths = v.replace(/^3 months? - /i,"");
-      else if (v.startsWith("6 month"))followUp.sixMonths   = v.replace(/^6 months? - /i,"");
-    }
-  });
-
-  return { exercise: { weeklyBlueprint: blueprint, zones }, supplements, followUp };
+  return {
+    exercise:    parseExercise(txt),
+    supplements: parseSupplements(txt),
+    followUp:    parseFollowUp(txt),
+  };
 }
 
 
