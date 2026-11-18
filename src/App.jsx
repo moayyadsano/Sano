@@ -305,16 +305,68 @@ function computeCompleteness(form, sex) {
   return { filled, total, pct: Math.round((filled / total) * 100) };
 }
 
-// ─── Domain score (only from available data) ──────────────────────────────────
-function domainScore(domain, labs, body) {
+// ─── Domain coverage (PH1-AI-04) ──────────────────────────────────────────────
+// Reports how many inputs each clinical domain actually has.
+// Never returns null: an empty domain is reported explicitly as absent, so the
+// AI can be told "no data for this domain" rather than silently inventing one.
+
+const DOMAIN_LABELS = {
+  cardiovascular: "Cardiovascular",
+  metabolic:      "Metabolic",
+  hormonal:       "Hormonal",
+  longevity:      "Longevity biomarkers",
+  physical:       "Physical and organ function",
+};
+
+// Body-composition fields that count toward the physical domain
+const PHYSICAL_BODY_KEYS = ["weight","height","bmi","bodyFat","muscle","waist","sbp","dbp","hr","vo2max","grip"];
+
+// Hormone panels are sex-specific: exclude the panel that does not apply,
+// otherwise a male patient looks like he is missing 5 female hormones.
+function domainKeysForSex(domain, sex) {
   const keys = DOMAIN_INPUTS[domain] || [];
-  const present = keys.filter(k => labs[k] !== "" && labs[k] !== undefined && labs[k] !== null);
-  if (domain === "physical") {
-    const bPresent = ["weight","height","bmi","bodyFat","vo2max","grip"].filter(k => body[k] !== "" && body[k] !== undefined);
-    if (present.length + bPresent.length === 0) return null;
-  }
-  if (present.length === 0) return null;
-  return { available: present.length, total: keys.length, pct: Math.round((present.length / keys.length) * 100) };
+  if (domain !== "hormonal") return keys;
+  const MALE_ONLY   = ["testTotal","testFree"];
+  const FEMALE_ONLY = ["estradiol","progesterone","lh","fsh","prolactin"];
+  return keys.filter(function(k) {
+    if (sex === "Male")   return FEMALE_ONLY.indexOf(k) === -1;
+    if (sex === "Female") return MALE_ONLY.indexOf(k) === -1;
+    return true;
+  });
+}
+
+function computeDomainCoverage(form, sex) {
+  const labs = form.labs || {};
+  const body = form.body || {};
+  const has  = function(obj, k) { return obj[k] !== "" && obj[k] !== undefined && obj[k] !== null; };
+
+  const out = {};
+  Object.keys(DOMAIN_INPUTS).forEach(function(domain) {
+    const keys  = domainKeysForSex(domain, sex);
+    let present = keys.filter(function(k) { return has(labs, k); }).length;
+    let total   = keys.length;
+
+    if (domain === "physical") {
+      present += PHYSICAL_BODY_KEYS.filter(function(k) { return has(body, k); }).length;
+      total   += PHYSICAL_BODY_KEYS.length;
+    }
+
+    out[domain] = {
+      label:   DOMAIN_LABELS[domain] || domain,
+      present: present,
+      total:   total,
+      pct:     total ? Math.round((present / total) * 100) : 0,
+      absent:  present === 0,
+    };
+  });
+  return out;
+}
+
+// Confidence band derived from overall completeness
+function confidenceLabel(pct) {
+  if (pct >= 70) return "Good";
+  if (pct >= 40) return "Moderate";
+  return "Low";
 }
 
 // ─── PhenoAge eligibility ─────────────────────────────────────────────────────
@@ -535,7 +587,7 @@ async function getExerciseSupplements(ctx) {
 
 
 // ─── Build context object for AI ─────────────────────────────────────────────
-function buildContext(form, unitSys, completeness, preventResult) {
+function buildContext(form, unitSys, completeness, preventResult, domainCoverage) {
   const filled = {};
   const sex = form.patient.sex;
 
@@ -587,7 +639,22 @@ function buildContext(form, unitSys, completeness, preventResult) {
     filled["AHA PREVENT 10-yr CVD risk"] = preventResult.risk + "% (" + preventResult.category + ")";
   }
 
-  filled["Data completeness"] = completeness.filled + "/" + completeness.total + " (" + completeness.pct + "%)";
+  // ── PH1-AI-04: completeness and domain-coverage metadata ──
+  // These keys are read by the system prompt's MISSING DOMAIN and CONFIDENCE rules.
+  filled["DATA COMPLETENESS"] = completeness.filled + " of " + completeness.total
+                              + " data points (" + completeness.pct + "%)";
+  filled["CONFIDENCE LEVEL"]  = confidenceLabel(completeness.pct);
+
+  const cov = domainCoverage || {};
+  const withData = [], noData = [];
+  Object.keys(cov).forEach(function(d) {
+    const c = cov[d];
+    if (c.absent) noData.push(c.label);
+    else          withData.push(c.label + " (" + c.present + " of " + c.total + ")");
+  });
+  filled["DOMAINS WITH DATA"]    = withData.length ? withData.join("; ") : "none";
+  filled["DOMAINS WITH NO DATA"] = noData.length   ? noData.join("; ")   : "none";
+
   return filled;
 }
 
@@ -643,7 +710,7 @@ function TextField({ label, value, onChange, placeholder, multiline }) {
 }
 
 function Pill({ level }) {
-  const m = {Critical:{bg:"#FFF0F0",c:C.red,b:"#F5C5C5"},High:{bg:"#FFF8EC",c:C.amber,b:"#F0DDB5"},Medium:{bg:"#FFFBEC",c:C.gold,b:"#EDE0A5"},Low:{bg:"#F0FAF3",c:C.green,b:"#B5DEC5"}};
+  const m = {Critical:{bg:"#FFF0F0",c:C.red,b:"#F5C5C5"},High:{bg:"#FFF8EC",c:C.amber,b:"#F0DDB5"},Medium:{bg:"#FFFBEC",c:C.gold,b:"#EDE0A5"},Low:{bg:"#F0FAF3",c:C.green,b:"#B5DEC5"},"No data":{bg:"#F2F1EE",c:C.inkLight,b:C.border}};
   const s=m[level]||m.Medium;
   return <span style={{fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",textTransform:"uppercase",padding:"2px 8px",borderRadius:20,background:s.bg,color:s.c,border:`1px solid ${s.b}`,whiteSpace:"nowrap"}}>{level}</span>;
 }
@@ -676,9 +743,11 @@ function Dial({ label, scoreObj }) {
 const TABS = ["overview","findings","targets","action","nutrition","exercise","supplements","monitoring"];
 
 // ─── PDF Export ───────────────────────────────────────────────────────────────
-function downloadReport(form, result, preventResult, completeness, unitSys) {
+function downloadReport(form, result, preventResult, completeness, unitSys, absentDomains) {
   const name = form.patient.name || "Patient";
   const date = new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});
+  const absentList = (absentDomains && absentDomains.length) ? absentDomains : [];
+  const absentNote = absentList.length ? " \u00b7 No data: " + absentList.join(", ") : "";
   const noMeds = !form.history.medications;
   const warnBanner = noMeds ? `<div style="padding:10px 14px;background:#FFF8EC;border:1px solid #F0DDB5;border-radius:6px;margin-bottom:12px;font-size:12px;color:#8B5E14;">⚠ Medication reconciliation not completed — review supplement recommendations before use.</div>` : "";
   const prevSection = preventResult ? `<h2>AHA PREVENT — 10-Year CVD Risk</h2>
@@ -698,7 +767,7 @@ function downloadReport(form, result, preventResult, completeness, unitSys) {
     <div style="font-size:12px;color:rgba(255,255,255,0.6);font-family:monospace">${[form.patient.age&&`Age ${form.patient.age}`,form.patient.sex,form.patient.chiefGoal].filter(Boolean).join(" · ")}</div>
   </div>
   <div class="page">
-    <div style="padding:10px 14px;background:#F0F5F2;border:1px solid #C5DDCF;border-radius:6px;margin-bottom:16px;font-size:12px;color:#2D5441;font-family:monospace;">Data completeness: ${completeness.filled}/${completeness.total} points (${completeness.pct}%) · Unit system: ${unitSys}</div>
+    <div style="padding:10px 14px;background:#F0F5F2;border:1px solid #C5DDCF;border-radius:6px;margin-bottom:16px;font-size:12px;color:#2D5441;font-family:monospace;">Data completeness: ${completeness.filled}/${completeness.total} points (${completeness.pct}%) · Confidence: ${confidenceLabel(completeness.pct)} · Unit system: ${unitSys}${absentNote}</div>
     ${warnBanner}
     <h2>Clinical Summary</h2><p style="font-size:14px;line-height:1.7;color:#5A554D;">${result.summary}</p>
     <p style="font-size:13px;line-height:1.7;color:#2D5441;font-style:italic;">${result.longevityNote}</p>
@@ -751,13 +820,14 @@ export default function App() {
 
   const completeness = useMemo(() => computeCompleteness(form, sex), [form, sex]);
 
-  const domainScores = useMemo(() => ({
-    cardiovascular: domainScore("cardiovascular", form.labs, form.body),
-    metabolic:      domainScore("metabolic",      form.labs, form.body),
-    hormonal:       domainScore("hormonal",       form.labs, form.body),
-    longevity:      domainScore("longevity",      form.labs, form.body),
-    physical:       domainScore("physical",       form.labs, form.body),
-  }), [form.labs, form.body]);
+  // PH1-AI-04: per-domain coverage drives both the dials and the AI's absent-domain rules
+  const domainCoverage = useMemo(() => computeDomainCoverage(form, sex), [form, sex]);
+  const absentDomains  = useMemo(
+    () => Object.keys(domainCoverage)
+            .filter(d => domainCoverage[d].absent)
+            .map(d => domainCoverage[d].label),
+    [domainCoverage]
+  );
 
   async function generate() {
     setLoad(true); setError(null);
@@ -772,7 +842,9 @@ export default function App() {
     const pr = calcPREVENT(form.prevent, unitSys);
     setPrevent(pr);
     try {
-      const ctx = buildContext(cleanForm, unitSys, completeness, pr);
+      // Coverage computed from the CLEANED form, so a quarantined value never counts as present
+      const coverage = computeDomainCoverage(cleanForm, form.patient.sex);
+      const ctx = buildContext(cleanForm, unitSys, completeness, pr, coverage);
       if (flagged.length > 0) ctx["QUARANTINED_VALUES"] = flagged.map(f => f.label + " (" + f.value + " - out of plausible range)").join("; ");
       setLoadMsg("Analysing available biomarkers... (1/4)");
       let r1;
@@ -844,7 +916,7 @@ export default function App() {
             ))}
           </div>
           {result && <button className="btn-s" style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.2)",padding:"5px 14px",fontSize:10}} onClick={()=>{setResult(null);setStep(0);setForm(blank());}}>New Patient</button>}
-          {result && <button className="btn-s" style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.25)",padding:"5px 14px",fontSize:10,background:"rgba(255,255,255,0.08)"}} onClick={()=>downloadReport(form,result,prevent,completeness,unitSys)}>Download PDF</button>}
+          {result && <button className="btn-s" style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.25)",padding:"5px 14px",fontSize:10,background:"rgba(255,255,255,0.08)"}} onClick={()=>downloadReport(form,result,prevent,completeness,unitSys,absentDomains)}>Download PDF</button>}
         </div>
       </header>
 
@@ -1081,8 +1153,18 @@ export default function App() {
               </div>
               <div style={{fontSize:10,color:C.inkLight,fontFamily:"'DM Mono',monospace"}}>{completeness.filled} of {completeness.total} data points</div>
               <div style={{fontSize:10,color:completeness.pct<40?C.amber:C.inkLight,fontFamily:"'DM Mono',monospace",marginTop:3}}>
-                {completeness.pct<40?"Low confidence":"Confidence: "+( completeness.pct>=70?"Good":"Moderate")}
+                Confidence: {confidenceLabel(completeness.pct)}
               </div>
+              {absentDomains.length > 0 && (
+                <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkLight,marginBottom:5}}>No data in</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                    {absentDomains.map(d=>(
+                      <span key={d} style={{fontSize:9,fontFamily:"'DM Mono',monospace",padding:"2px 7px",borderRadius:4,background:"#F2F1EE",color:C.inkMid,border:`1px solid ${C.border}`}}>{d}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1114,7 +1196,7 @@ export default function App() {
           <div className="card fade" style={{marginBottom:14}}>
             <div className="sh">Domain Data Coverage <span style={{fontWeight:300,textTransform:"none",letterSpacing:0}}>(dial shows % of domain inputs available — not a health score)</span></div>
             <div style={{display:"flex",justifyContent:"space-around",flexWrap:"wrap",gap:14}}>
-              {Object.entries(domainScores).map(([k,v])=><Dial key={k} label={k} scoreObj={v}/>)}
+              {Object.entries(domainCoverage).map(([k,v])=><Dial key={k} label={k} scoreObj={v.absent?null:v}/>)}
             </div>
             <p style={{fontSize:10,color:C.inkLight,fontFamily:"'DM Mono',monospace",textAlign:"center",marginTop:12}}>
               Scores show data coverage, not health quality. Scores and findings are generated only from available inputs — no values are inferred.
@@ -1230,8 +1312,8 @@ export default function App() {
           {tab==="findings" && (
             <div className="fade" style={{display:"flex",flexDirection:"column",gap:11}}>
               {(result.findings||[]).map((f,i)=>(
-                <div key={i} className="card" style={{display:"flex",gap:16,alignItems:"flex-start"}}>
-                  <div style={{fontSize:16,fontWeight:700,color:C.border,fontFamily:"'DM Mono',monospace",minWidth:28}}>{String(i+1).padStart(2,"0")}</div>
+                <div key={i} className="card" style={{display:"flex",gap:16,alignItems:"flex-start",background:f.isAbsent?"#F7F6F3":C.surface,borderStyle:f.isAbsent?"dashed":"solid"}}>
+                  <div style={{fontSize:16,fontWeight:700,color:C.border,fontFamily:"'DM Mono',monospace",minWidth:28}}>{f.isAbsent?"--":String(i+1).padStart(2,"0")}</div>
                   <div style={{flex:1}}>
                     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
                       <span style={{fontSize:15,fontWeight:700}}>{f.title}</span><Pill level={f.priority}/>

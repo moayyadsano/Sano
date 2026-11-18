@@ -14,7 +14,7 @@
  * PARSER VERSION: increment when parsing logic changes
  */
 
-export const PARSER_VERSION = "1.0.0";
+export const PARSER_VERSION = "1.1.0";
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -127,6 +127,7 @@ export function parseFindings(text) {
   const VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"];
   const lines = toLines(text);
   const findings = [];
+  const absences = [];   // PH1-AI-04: domains the AI was told have no data
 
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];
@@ -134,6 +135,20 @@ export function parseFindings(text) {
 
     var parts = splitPipe(l, 2);
     if (!parts) continue;
+
+    // ── PH1-AI-04: domain-absence marker ──
+    // Format: ABSENT | <domain> | <message>
+    // Not a clinical finding — a statement that the domain was never assessed.
+    if (parts[0].trim().toUpperCase() === "ABSENT") {
+      absences.push({
+        priority:   "No data",
+        title:      clean(parts[1]) || "Domain",
+        detail:     clean(parts[2]) || "No data available for this domain.",
+        inputsUsed: "No data entered",
+        isAbsent:   true,
+      });
+      continue;
+    }
 
     // Priority is always first field
     var rawPriority = parts[0].trim();
@@ -167,8 +182,8 @@ export function parseFindings(text) {
     });
   }
 
-  // Always return at least one finding
-  if (findings.length === 0) {
+  // Absence notices alone are a valid result — only fall back when nothing parsed
+  if (findings.length === 0 && absences.length === 0) {
     console.warn("[parser] No findings parsed from AI response");
     return [{
       priority:   "Low",
@@ -178,11 +193,13 @@ export function parseFindings(text) {
     }];
   }
 
-  // Cap at 6 findings, sort by priority
+  // Real findings first, sorted by severity; domain-absence notices last
   var ORDER = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-  return findings
+  var sorted = findings
     .sort(function(a, b) { return (ORDER[a.priority] || 3) - (ORDER[b.priority] || 3); })
     .slice(0, 6);
+
+  return sorted.concat(absences.slice(0, 5));
 }
 
 /**
@@ -203,6 +220,9 @@ export function parseTargets(text) {
 
     var parts = splitPipe(l, 2);
     if (!parts) continue;
+
+    // Skip domain-absence markers (PH1-AI-04)
+    if (parts[0].trim().toUpperCase() === "ABSENT") continue;
 
     // Skip finding lines (start with a priority word)
     var firstWord = parts[0].trim();
