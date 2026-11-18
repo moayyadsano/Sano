@@ -255,10 +255,54 @@ describe("phenoAge eligibility", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // PREVENT  — exact behaviour is pinned; these drive clinical stratification
 // ═══════════════════════════════════════════════════════════════════════════
+// `enabled: true` is required from PH1-ALG-02 on: PREVENT is opt-in, so every
+// case that expects a score has to say the clinician asked for one.
 const basePrevent = {
+  enabled: true,
   pAge: "50", pSex: "Male", pTC: "5.0", pHDL: "1.3", pSBP: "120",
   pBPtx: "No", pDM: "No", pSmoke: "No", pEGFR: "90", pBMI: "26",
 };
+
+describe("calcPREVENT opt-in gate (PH1-ALG-02)", () => {
+  // The score is a calibrated approximation, so it must never appear unless a
+  // clinician deliberately asked for it. These cases pin "silence by default":
+  // a caller that forgets the flag gets null, never a cardiovascular risk score.
+  test("complete inputs with no enabled flag produce nothing", () => {
+    const { enabled, ...noFlag } = basePrevent;
+    expect(calcPREVENT(noFlag, "SI")).toBeNull();
+  });
+
+  test("enabled:false produces nothing even with complete inputs", () => {
+    expect(calcPREVENT({ ...basePrevent, enabled: false }, "SI")).toBeNull();
+  });
+
+  test("the gate is strict — only the boolean true opens it", () => {
+    // A truthy string from a form field or a stray 1 must not count as consent.
+    for (const v of ["true", "yes", 1, {}, [], "1"]) {
+      expect(calcPREVENT({ ...basePrevent, enabled: v }, "SI")).toBeNull();
+    }
+    expect(calcPREVENT({ ...basePrevent, enabled: true }, "SI")).not.toBeNull();
+  });
+
+  test("a missing or null patient object produces nothing", () => {
+    expect(calcPREVENT(null, "SI")).toBeNull();
+    expect(calcPREVENT(undefined, "SI")).toBeNull();
+  });
+
+  test("enabling alone is not enough — inputs are still required", () => {
+    // Opting in must not weaken the completeness checks.
+    expect(calcPREVENT({ enabled: true }, "SI")).toBeNull();
+  });
+
+  test("the calibration caveat is published alongside the score", () => {
+    // The report and the PDF both render this, so an empty or silently
+    // shortened disclaimer would ship a bare number with no caveat.
+    expect(typeof PREVENT_DISCLAIMER).toBe("string");
+    expect(PREVENT_DISCLAIMER.length).toBeGreaterThan(80);
+    expect(PREVENT_DISCLAIMER).toMatch(/approximation/i);
+    expect(PREVENT_DISCLAIMER).toMatch(/Khan/);
+  });
+});
 
 describe("calcPREVENT", () => {
   test("the documented reference case lands where the AHA tool does", () => {

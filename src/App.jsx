@@ -100,7 +100,8 @@ const PREVENT_BASE = [
   { key:"pBPtx",   label:"On BP medication",        type:"select", options:["No","Yes"] },
   { key:"pDM",     label:"Diabetes",               type:"select", options:["No","Yes"] },
   { key:"pSmoke",  label:"Current smoker",          type:"select", options:["No","Yes"] },
-  { key:"pEGFR",   label:"eGFR",                   unit:"alt", placeholder:"mL/min/1.73m²" },
+  // unit:null, not "alt" — "alt" is the ALT enzyme and rendered eGFR as "U/L".
+  { key:"pEGFR",   label:"eGFR",                   unit:null, placeholder:"mL/min/1.73m²" },
   { key:"pBMI",    label:"BMI",                    unit:null, placeholder:"kg/m²" },
   { key:"pHbA1c",  label:"HbA1c (optional)",       unit:"hba1c", placeholder:"extended model" },
   { key:"pUACR",   label:"UACR (optional)",         unit:"uacr",  placeholder:"extended model" },
@@ -156,7 +157,7 @@ const blank = () => ({
   patient:  { name:"", age:"", sex:"Male", chiefGoal:"Longevity & Prevention", targetPhilosophy:"Guideline-based" },
   history:  { conditions:"", medications:"", supplements:"", allergies:"", familyHx:"", femaleRepro:"", sleepApneaScreen:"No" },
   labs:     {},
-  prevent:  { pSex:"Male", pBPtx:"No", pDM:"No", pSmoke:"No" },
+  prevent:  { enabled:false, pSex:"Male", pBPtx:"No", pDM:"No", pSmoke:"No" },
   enhancers:{},
   lifestyle:{ sleepQ:"Good", stress:"3 – Moderate", smoking:"Never", diet:"Mixed" },
   body:     {},
@@ -228,7 +229,7 @@ import {
   getImplausibleLabs,
   computeCompleteness, computeDomainCoverage, confidenceLabel,
   phenoAgeEligible,
-  calcPREVENT,
+  calcPREVENT, PREVENT_DISCLAIMER,
 } from "./lib/algorithms/index.js";
 
 // ─── AI call wrappers ─────────────────────────────────────────────────────────
@@ -446,7 +447,11 @@ function downloadReport(form, result, preventResult, completeness, unitSys, abse
       <strong style="margin-left:12px;color:${preventColor(preventResult)};">${preventResult.category}</strong>
       <div style="margin-top:8px;font-size:13px;color:#5A554D;">${preventResult.recommendation}</div>
       <div style="margin-top:6px;font-size:12px;color:#4A7C65;"><strong>Lipid goal:</strong> ${preventResult.lipidGoal}</div>
-      <div style="margin-top:4px;font-size:11px;color:#9A9489;">Source: ${preventResult.source}</div>
+      <div style="margin-top:10px;padding:9px 12px;background:#FFFDF6;border:1px solid #EDE0A5;border-radius:5px;">
+        <div style="font-size:10px;font-family:monospace;letter-spacing:0.1em;text-transform:uppercase;color:#8B6914;margin-bottom:4px;">Calibration caveat</div>
+        <div style="font-size:11px;color:#5A554D;line-height:1.5;">${PREVENT_DISCLAIMER}</div>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:#9A9489;">Source: ${preventResult.source} &middot; Horizon: ${preventResult.horizon}</div>
     </div>` : "";
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Sano Report — ${name}</title>
   <style>body{font-family:Georgia,serif;background:#F5F2EC;color:#1A1916;margin:0;padding:0}.page{max-width:800px;margin:0 auto;padding:40px;background:#FDFBF8}h2{font-size:13px;font-family:monospace;letter-spacing:0.12em;text-transform:uppercase;color:#4A7C65;border-bottom:1px solid #E2DDD5;padding-bottom:6px;margin:24px 0 12px}table{width:100%;border-collapse:collapse;margin-bottom:8px}tr:nth-child(even){background:#F5F2EC}td,th{padding:7px 12px;font-size:12px;text-align:left}.header{background:#1E3A2F;color:white;padding:20px 40px}.disc{margin-top:32px;padding:12px;background:#F5F2EC;border:1px solid #E2DDD5;border-radius:6px;font-size:11px;color:#9A9489;font-family:monospace}</style>
@@ -493,7 +498,9 @@ export default function App() {
   const [unitSys,    setUnitSys]    = useState("SI");
   const [step,       setStep]       = useState(0);
   const [form,       setForm]       = useState(blank());
-  const [preventOpen,setPreventOpen]= useState(false);
+  // PH1-ALG-02: whether PREVENT is included lives in the form, not in UI state,
+  // so the inputs a clinician already typed survive turning it off and back on.
+  const preventOn = form.prevent.enabled === true;
   const [quarantined,  setQuarantined] = useState([]);
   const [loading,    setLoad]       = useState(false);
   const [loadMsg,    setLoadMsg]    = useState("");
@@ -689,19 +696,29 @@ export default function App() {
 
                   {/* PREVENT toggle */}
                   <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18,marginTop:4}}>
-                    <div onClick={()=>setPreventOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",userSelect:"none"}}>
-                      <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${preventOpen?C.accentLt:C.borderDk}`,background:preventOpen?C.accentLt:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s"}}>
-                        {preventOpen && <div style={{width:7,height:7,borderRadius:"50%",background:"#fff"}}/>}
+                    <div onClick={()=>setField("prevent","enabled",!preventOn)} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",userSelect:"none"}}>
+                      <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${preventOn?C.accentLt:C.borderDk}`,background:preventOn?C.accentLt:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .2s"}}>
+                        {preventOn && <div style={{width:7,height:7,borderRadius:"50%",background:"#fff"}}/>}
                       </div>
                       <div>
-                        <span style={{fontSize:13,fontWeight:700,color:preventOpen?C.accentMid:C.ink}}>AHA PREVENT Score</span>
-                        <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:C.inkLight,marginLeft:10}}>Khan et al., Circulation 2023 · 10-year CVD risk</span>
+                        <span style={{fontSize:13,fontWeight:700,color:preventOn?C.accentMid:C.ink}}>Include AHA PREVENT 10-year CVD risk</span>
+                        <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:C.inkLight,marginLeft:10}}>Optional · Khan et al., Circulation 2023</span>
+                        {!preventOn && (
+                          <div style={{fontSize:10,color:C.inkLight,fontFamily:"'DM Mono',monospace",marginTop:3}}>
+                            Off by default. No cardiovascular risk score appears in the report unless you turn this on.
+                          </div>
+                        )}
                       </div>
-                      <div style={{marginLeft:"auto",fontSize:10,color:C.inkLight,fontFamily:"'DM Mono',monospace"}}>{preventOpen?"▲ collapse":"▼ expand"}</div>
+                      <div style={{marginLeft:"auto",fontSize:10,color:preventOn?C.accentMid:C.inkLight,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{preventOn?"● included":"○ off"}</div>
                     </div>
 
-                    {preventOpen && (
+                    {preventOn && (
                       <div style={{marginTop:16,padding:18,background:"#F0F5F2",borderRadius:8,border:`1px solid #C5DDCF`}}>
+                        {/* Calibration caveat — shown before any score is produced */}
+                        <div style={{padding:"9px 12px",background:"#FFFDF6",border:`1px solid #EDE0A5`,borderRadius:6,marginBottom:16}}>
+                          <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",textTransform:"uppercase",color:C.gold,marginBottom:4}}>Calibration caveat</div>
+                          <span style={{fontSize:11,color:C.inkMid,lineHeight:1.55}}>{PREVENT_DISCLAIMER}</span>
+                        </div>
                         {/* Base model */}
                         <div className="sh" style={{color:C.accentMid,borderColor:"#C5DDCF"}}>Base model inputs (required for calculation)</div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:20}}>
@@ -951,6 +968,10 @@ export default function App() {
                   ⚠ {prevent.implausibleNote}
                 </div>
               )}
+              <div style={{marginTop:10,padding:"8px 12px",background:"#FFFDF6",border:`1px solid #EDE0A5`,borderRadius:5}}>
+                <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",textTransform:"uppercase",color:C.gold,marginBottom:4}}>Calibration caveat</div>
+                <span style={{fontSize:11,color:C.inkMid,lineHeight:1.5}}>{PREVENT_DISCLAIMER}</span>
+              </div>
               <div className="source" style={{marginTop:8}}>{prevent.source} · Horizon: {prevent.horizon}</div>
             </div>
           )}

@@ -22,6 +22,13 @@
 //   sbp: mmHg, egfr: mL/min/1.73m², age: years 30-79
 
 export function calcPREVENT(p, unitSys) {
+  // PH1-ALG-02 — PREVENT is OPT-IN.
+  // This is a calibrated approximation, not the published R package, so it is
+  // only produced when a clinician has deliberately asked for it. An absent
+  // `enabled` flag counts as "not asked for": a caller that forgets it gets
+  // null rather than a silently generated cardiovascular risk score.
+  if (!p || p.enabled !== true) return null;
+
   const age  = parseFloat(p.pAge);
   const sbp  = parseFloat(p.pSBP);
   const bmi  = parseFloat(p.pBMI);
@@ -121,17 +128,26 @@ export function calcPREVENT(p, unitSys) {
     implausibleNote: implausible
       ? `Computed risk (${risk.toFixed(1)}%) exceeds plausibility ceiling for age ${age} (${CEILING}%). Verify all inputs. Use AHA online calculator to confirm.`
       : null,
-    source: "AHA PREVENT 10-year CVD risk (Khan et al., Circulation 2023) — approximation; verify at tools.acc.org/ASCVD-risk-estimator",
+    source: "AHA PREVENT 10-year CVD risk (Khan et al., Circulation 2023)",
     horizon: "10-year"
   };
 }
 
-// Shown wherever a PREVENT result appears. The baseline hazard is calibrated to
-// match the AHA online calculator rather than taken from the published R package,
-// so results can diverge by a few percent at the extremes.
+// Shown wherever a PREVENT result appears.
+//
+// HONESTY NOTE: the baseline cumulative hazard here was calibrated to reproduce
+// the AHA online calculator, not lifted from the published R package (which uses
+// a Royston-Parmar flexible parametric model that cannot be reproduced exactly
+// without the original data). Agreement is closest for middle-aged patients at
+// lower risk, and loosens for older patients carrying several risk factors.
+// No single error bound is quoted because that would imply a precision this
+// implementation has not demonstrated across the whole input range.
 export const PREVENT_DISCLAIMER =
-  "Calibrated approximation of the AHA PREVENT equations (Khan et al., Circulation 2023). "
-  + "Verify clinically significant results at tools.acc.org/ASCVD-risk-estimator.";
+  "Calibrated approximation of the AHA PREVENT equations (Khan et al., Circulation 2023), "
+  + "not the published reference implementation. Agreement with the official AHA calculator "
+  + "is closest at middle age and lower risk, and may diverge for older patients with "
+  + "multiple risk factors. Confirm any clinically significant result at "
+  + "tools.acc.org/ASCVD-risk-estimator before acting on it.";
 
 // Severity -> ordering weight, for callers that need to rank or compare results.
 export const PREVENT_SEVERITY_ORDER = { low: 0, borderline: 1, intermediate: 2, high: 3 };
