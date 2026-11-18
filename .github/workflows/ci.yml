@@ -40,10 +40,17 @@ jobs:
         with:
           # Node 20+ ships the built-in test runner `npm test` relies on.
           node-version: "20"
-          cache: "npm"
+          # No `cache: "npm"` here: npm caching needs a package-lock.json, and
+          # this repository does not have one. Asking for it fails the job in
+          # about 8 seconds with "Dependencies lock file is not found", before
+          # a single line of Sano's code runs.
 
       - name: Install dependencies
-        run: npm ci
+        # `npm install`, not `npm ci`: ci REQUIRES a lockfile and errors out
+        # without one. If a package-lock.json is ever committed, switch this
+        # back to `npm ci` and restore the cache line above — ci is faster and
+        # installs exactly the pinned versions.
+        run: npm install
 
       - name: Build
         run: npm run build
