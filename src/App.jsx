@@ -10,11 +10,6 @@ const C = {
 };
 
 
-
-
-
-
-
 // PREVENT returns a semantic severity; the colour mapping is a UI concern.
 const PREVENT_COLOR = {
   low:          C.green,
@@ -23,153 +18,6 @@ const PREVENT_COLOR = {
   high:         C.red,
 };
 const preventColor = (r) => (r && PREVENT_COLOR[r.severity]) || C.inkMid;
-
-// ─── Intake steps ─────────────────────────────────────────────────────────────
-const STEPS = [
-  { id:"patient",    label:"Patient Profile",       icon:"◎" },
-  { id:"history",    label:"History & Medications", icon:"⊕" },
-  { id:"labs",       label:"Lab Biomarkers",         icon:"⬡" },
-  { id:"lifestyle",  label:"Lifestyle",              icon:"◈" },
-  { id:"body",       label:"Body Composition",       icon:"◉" },
-];
-
-// ─── Lab groups with analyte keys and which domain they feed ──────────────────
-const LAB_GROUPS = [
-  { group:"Cardiovascular Risk", analytes:[
-    { key:"ldl",    label:"LDL-C",           unit:"cholesterol", domain:"cardiovascular" },
-    { key:"hdl",    label:"HDL-C",           unit:"cholesterol", domain:"cardiovascular" },
-    { key:"tc",     label:"Total Cholesterol",unit:"cholesterol", domain:"cardiovascular" },
-    { key:"tg",     label:"Triglycerides",   unit:"triglycerides",domain:"cardiovascular" },
-    { key:"apoB",   label:"ApoB",            unit:"apoB",        domain:"cardiovascular" },
-    { key:"lpa",    label:"Lp(a)",           unit:"lpa",         domain:"cardiovascular" },
-    { key:"hsCRP",  label:"hs-CRP",          unit:"hsCRP",       domain:"cardiovascular" },
-    { key:"homocys",label:"Homocysteine",    unit:"homocysteine",domain:"cardiovascular" },
-  ]},
-  { group:"Metabolic & Glycaemic", analytes:[
-    { key:"glucose",label:"Fasting Glucose", unit:"glucose",     domain:"metabolic" },
-    { key:"insulin",label:"Fasting Insulin", unit:"apoB",        domain:"metabolic" },  // uIU/mL universal
-    { key:"homaIR", label:"HOMA-IR",         unit:null,          domain:"metabolic" },
-    { key:"hba1c",  label:"HbA1c",           unit:"hba1c",       domain:"metabolic" },
-  ]},
-  { group:"Hormonal — Universal", analytes:[
-    { key:"tsh",    label:"TSH",             unit:"tsh",         domain:"hormonal" },
-    { key:"ft3",    label:"Free T3",         unit:"ft3",         domain:"hormonal" },
-    { key:"ft4",    label:"Free T4",         unit:"ft4",         domain:"hormonal" },
-    { key:"dheas",  label:"DHEA-S",          unit:"dheas",       domain:"hormonal" },
-    { key:"cortisol",label:"Morning Cortisol",unit:"cortisol",   domain:"hormonal" },
-    { key:"shbg",   label:"SHBG",            unit:"shbg",        domain:"hormonal" },
-  ]},
-  { group:"Hormonal — Male", analytes:[
-    { key:"testTotal",label:"Total Testosterone",unit:"testosterone",domain:"hormonal",sexFilter:"Male" },
-    { key:"testFree", label:"Free Testosterone", unit:"testosterone",domain:"hormonal",sexFilter:"Male" },
-  ]},
-  { group:"Hormonal — Female", analytes:[
-    { key:"estradiol",  label:"Estradiol (E2)",  unit:"estradiol",  domain:"hormonal",sexFilter:"Female" },
-    { key:"progesterone",label:"Progesterone",   unit:"progesterone",domain:"hormonal",sexFilter:"Female" },
-    { key:"lh",         label:"LH",              unit:"lh",         domain:"hormonal",sexFilter:"Female" },
-    { key:"fsh",        label:"FSH",             unit:"fsh",        domain:"hormonal",sexFilter:"Female" },
-    { key:"prolactin",  label:"Prolactin",       unit:"prolactin",  domain:"hormonal",sexFilter:"Female" },
-  ]},
-  { group:"Micronutrients", analytes:[
-    { key:"vitD",   label:"Vitamin D (25-OH)", unit:"vitD",       domain:"metabolic" },
-    { key:"b12",    label:"Vitamin B12",       unit:"b12",        domain:"metabolic" },
-    { key:"ferritin",label:"Ferritin",         unit:"ferritin",   domain:"metabolic" },
-  ]},
-  { group:"Organ & Liver Function", analytes:[
-    { key:"creatinine",label:"Creatinine",     unit:"creatinine", domain:"physical" },
-    { key:"alt",    label:"ALT",               unit:"alt",        domain:"physical" },
-    { key:"ast",    label:"AST",               unit:"ast",        domain:"physical" },
-    { key:"albumin",label:"Albumin",           unit:"albumin",    domain:"longevity" },
-    { key:"alp",    label:"Alkaline Phosphatase",unit:"alp",      domain:"longevity" },
-  ]},
-  { group:"CBC with Differential (for PhenoAge)", analytes:[
-    { key:"wbc",    label:"WBC",               unit:"wbc",        domain:"longevity" },
-    { key:"lymphPct",label:"Lymphocyte %",     unit:"lymph",      domain:"longevity" },
-    { key:"mcv",    label:"MCV",               unit:"mcv",        domain:"longevity" },
-    { key:"rdw",    label:"RDW",               unit:"rdw",        domain:"longevity" },
-  ]},
-];
-
-// PREVENT base model inputs (AHA PREVENT, Khan et al. Circulation 2023)
-const PREVENT_BASE = [
-  { key:"pAge",    label:"Age",                    type:"number", range:"30–79" },
-  { key:"pSex",    label:"Sex",                    type:"select", options:["Male","Female"] },
-  { key:"pTC",     label:"Total Cholesterol",      unit:"cholesterol" },
-  { key:"pHDL",    label:"HDL-C",                  unit:"cholesterol" },
-  { key:"pSBP",    label:"Systolic BP",             unit:"bp" },
-  { key:"pBPtx",   label:"On BP medication",        type:"select", options:["No","Yes"] },
-  { key:"pDM",     label:"Diabetes",               type:"select", options:["No","Yes"] },
-  { key:"pSmoke",  label:"Current smoker",          type:"select", options:["No","Yes"] },
-  // unit:null, not "alt" — "alt" is the ALT enzyme and rendered eGFR as "U/L".
-  { key:"pEGFR",   label:"eGFR",                   unit:null, placeholder:"mL/min/1.73m²" },
-  { key:"pBMI",    label:"BMI",                    unit:null, placeholder:"kg/m²" },
-  { key:"pHbA1c",  label:"HbA1c (optional)",       unit:"hba1c", placeholder:"extended model" },
-  { key:"pUACR",   label:"UACR (optional)",         unit:"uacr",  placeholder:"extended model" },
-];
-
-// Risk enhancers (ACC/AHA — NOT part of PREVENT calculation)
-const RISK_ENHANCERS = [
-  { key:"reFamilyHx",   label:"Family history of premature ASCVD (<55M / <65F)" },
-  { key:"reLpa",        label:"Lp(a) elevated (see labs)" },
-  { key:"reApoB",       label:"ApoB elevated (see labs)" },
-  { key:"reHsCRP",      label:"hsCRP >3 mg/L (see labs)" },
-  { key:"reCAC",        label:"CAC score — enter below", hasInput:true, inputKey:"reCACval", inputLabel:"CAC (Agatston)", type:"number" },
-  { key:"reMetSyn",     label:"Metabolic syndrome" },
-  { key:"reCKD",        label:"CKD (eGFR <60 or albuminuria)" },
-  { key:"reInflam",     label:"Chronic inflammatory disease (RA, psoriasis, IBD, HIV)" },
-  { key:"reSouthAsian", label:"South Asian ancestry" },
-  { key:"reHighTG",     label:"Persistent hypertriglyceridaemia" },
-];
-
-const LIFESTYLE_FIELDS = [
-  { key:"sleepHrs",   label:"Avg Sleep",          unit:"hr/night", type:"number" },
-  { key:"sleepQ",     label:"Sleep Quality",       type:"select", options:["Excellent","Good","Fair","Poor"] },
-  { key:"stress",     label:"Perceived Stress",    type:"select", options:["1 – Minimal","2","3 – Moderate","4","5 – Severe"] },
-  { key:"exDays",     label:"Exercise frequency",  unit:"days/wk", type:"number" },
-  { key:"exType",     label:"Exercise type",       type:"text", placeholder:"e.g. weights, running" },
-  { key:"exMin",      label:"Session duration",    unit:"min", type:"number" },
-  { key:"smoking",    label:"Smoking status",      type:"select", options:["Never","Former","Current"] },
-  { key:"alcohol",    label:"Alcohol",             unit:"units/wk", type:"number" },
-  { key:"diet",       label:"Diet pattern",        type:"select", options:["Mixed","Mediterranean","Low-carb/Keto","Plant-based","Carnivore","Intermittent Fasting"] },
-  { key:"water",      label:"Daily water",         unit:"L/day", type:"number" },
-];
-
-const BODY_FIELDS = [
-  { key:"weight",  label:"Weight",           unit:"weight" },
-  { key:"height",  label:"Height",           unit:"height" },
-  { key:"bmi",     label:"BMI",              unit:null, placeholder:"kg/m²" },
-  { key:"bodyFat", label:"Body Fat",         unit:null, placeholder:"%" },
-  { key:"muscle",  label:"Muscle Mass",      unit:"weight" },
-  { key:"visceral",label:"Visceral Fat Score",unit:null },
-  { key:"waist",   label:"Waist",            unit:"waist" },
-  { key:"sbp",     label:"Systolic BP",      unit:"bp" },
-  { key:"dbp",     label:"Diastolic BP",     unit:"bp" },
-  { key:"hr",      label:"Resting HR",       unit:"hr" },
-  { key:"vo2max",  label:"VO₂ Max",          unit:"vo2max" },
-  { key:"grip",    label:"Grip Strength",    unit:"grip" },
-];
-
-
-
-
-
-const blank = () => ({
-  patient:  { name:"", age:"", sex:"Male", chiefGoal:"Longevity & Prevention", targetPhilosophy:"Guideline-based" },
-  history:  { conditions:"", medications:"", supplements:"", allergies:"", familyHx:"", femaleRepro:"", sleepApneaScreen:"No" },
-  labs:     {},
-  prevent:  { enabled:false, pSex:"Male", pBPtx:"No", pDM:"No", pSmoke:"No" },
-  enhancers:{},
-  lifestyle:{ sleepQ:"Good", stress:"3 – Moderate", smoking:"Never", diet:"Mixed" },
-  body:     {},
-});
-
-
-
-
-
-
-
-
 
 
 async function askAI(systemPrompt, userMsg) {
@@ -224,6 +72,14 @@ import {
 } from "./lib/parser.js";
 // ─── Deterministic algorithms ────────────────────────────────────────────────
 // Pure, React-free, unit-tested. See src/lib/algorithms/.
+// ─── Patient-record schema and AI context ────────────────────────────────────
+// Both are pure, React-free modules so the evaluation harness can drive the
+// same pipeline the UI drives. See src/lib/schema.js and src/lib/context.js.
+import {
+  STEPS, LAB_GROUPS, PREVENT_BASE, RISK_ENHANCERS,
+  LIFESTYLE_FIELDS, BODY_FIELDS, blank,
+} from "./lib/schema.js";
+import { buildContext } from "./lib/context.js";
 import {
   toDisplay, toSI, unitLabel,
   getImplausibleLabs,
@@ -276,78 +132,6 @@ async function getExerciseSupplements(ctx) {
   };
 }
 
-
-// ─── Build context object for AI ─────────────────────────────────────────────
-function buildContext(form, unitSys, completeness, preventResult, domainCoverage) {
-  const filled = {};
-  const sex = form.patient.sex;
-
-  // Patient basics
-  if (form.patient.name)      filled["Patient name"]      = form.patient.name;
-  if (form.patient.age)       filled["Age"]               = form.patient.age + " years";
-  filled["Sex"]               = sex;
-  filled["Primary goal"]      = form.patient.chiefGoal;
-  filled["Target philosophy"] = form.patient.targetPhilosophy;
-
-  // History
-  if (form.history.conditions)       filled["Medical conditions"]           = form.history.conditions;
-  if (form.history.medications)      filled["Current medications"]          = form.history.medications;
-  if (form.history.supplements)      filled["Current supplements"]          = form.history.supplements;
-  if (form.history.allergies)        filled["Allergies"]                    = form.history.allergies;
-  if (form.history.familyHx)         filled["Family history"]               = form.history.familyHx;
-  if (form.history.femaleRepro)      filled["Reproductive status"]          = form.history.femaleRepro;
-  if (form.history.sleepApneaScreen) filled["Sleep apnoea screen"]          = form.history.sleepApneaScreen;
-
-  // Labs
-  LAB_GROUPS.forEach(g => g.analytes.forEach(a => {
-    if (a.sexFilter && a.sexFilter !== sex) return;
-    const v = form.labs[a.key];
-    if (v !== "" && v !== undefined && v !== null) {
-      const u = a.unit ? unitLabel(a.unit, unitSys) : "";
-      filled[a.label] = v + (u ? " " + u : "");
-    }
-  }));
-
-  // Body
-  BODY_FIELDS.forEach(f => {
-    const v = form.body[f.key];
-    if (v !== "" && v !== undefined && v !== null) {
-      const u = f.unit ? unitLabel(f.unit, unitSys) : (f.placeholder || "");
-      filled[f.label] = v + (u ? " " + u : "");
-    }
-  });
-
-  // Lifestyle
-  LIFESTYLE_FIELDS.forEach(f => {
-    const v = form.lifestyle[f.key];
-    if (v !== "" && v !== undefined && v !== null) {
-      filled[f.label] = String(v);
-    }
-  });
-
-  // PREVENT result
-  if (preventResult) {
-    filled["AHA PREVENT 10-yr CVD risk"] = preventResult.risk + "% (" + preventResult.category + ")";
-  }
-
-  // ── PH1-AI-04: completeness and domain-coverage metadata ──
-  // These keys are read by the system prompt's MISSING DOMAIN and CONFIDENCE rules.
-  filled["DATA COMPLETENESS"] = completeness.filled + " of " + completeness.total
-                              + " data points (" + completeness.pct + "%)";
-  filled["CONFIDENCE LEVEL"]  = confidenceLabel(completeness.pct);
-
-  const cov = domainCoverage || {};
-  const withData = [], noData = [];
-  Object.keys(cov).forEach(function(d) {
-    const c = cov[d];
-    if (c.absent) noData.push(c.label);
-    else          withData.push(c.label + " (" + c.present + " of " + c.total + ")");
-  });
-  filled["DOMAINS WITH DATA"]    = withData.length ? withData.join("; ") : "none";
-  filled["DOMAINS WITH NO DATA"] = noData.length   ? noData.join("; ")   : "none";
-
-  return filled;
-}
 
 // ─── UI primitives ────────────────────────────────────────────────────────────
 function LabField({ analyte, siValue, onChange, unitSys }) {

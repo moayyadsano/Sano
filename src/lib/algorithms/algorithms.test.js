@@ -10,7 +10,7 @@
  * Format: vitest / jest compatible (describe / test / expect).
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect } from "../testing/harness.js";
 import {
   toDisplay, toSI, unitLabel, TO_CONV,
   PLAUSIBILITY, checkPlausibility, getImplausibleLabs,

@@ -14,7 +14,7 @@
  * PARSER VERSION: increment when parsing logic changes
  */
 
-export const PARSER_VERSION = "1.1.0";
+export const PARSER_VERSION = "1.2.0";
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -59,7 +59,15 @@ function afterPrefix(line, prefix) {
 function clean(val) {
   if (!val) return "";
   return val
-    .replace(/^[\d]+[\.\)]\s*/, "")  // "1. " or "1) "
+    // List numbering: "1. " or "1) ". The separator MUST be followed by
+    // whitespace or end-of-string.
+    //
+    // Without that guard this strips the integer part of any decimal that
+    // starts a field: "4.2 mmol/L" became "2 mmol/L", "0.9 g/L" became
+    // "9 g/L". That silently corrupted every decimal lab value the model
+    // echoed back into a target's current/optimal column — a tenfold error in
+    // a clinical report, printed as though the tool meant it.
+    .replace(/^\d+[.)](?=\s|$)\s*/, "")
     .replace(/^[-•*]\s*/, "")         // "- " or "• "
     .replace(/^\*+\s*/, "")           // "** "
     .trim();
@@ -195,8 +203,12 @@ export function parseFindings(text) {
 
   // Real findings first, sorted by severity; domain-absence notices last
   var ORDER = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+  // `ORDER[p] ?? 3`, never `|| 3`: Critical maps to 0, which is falsy, so the
+  // `||` form sent every Critical finding to the BOTTOM of the report. The
+  // single most urgent thing the tool had to say was printed last.
+  var rank = function(p) { var r = ORDER[p]; return r === undefined ? 3 : r; };
   var sorted = findings
-    .sort(function(a, b) { return (ORDER[a.priority] || 3) - (ORDER[b.priority] || 3); })
+    .sort(function(a, b) { return rank(a.priority) - rank(b.priority); })
     .slice(0, 6);
 
   return sorted.concat(absences.slice(0, 5));
@@ -362,16 +374,48 @@ export function parseExercise(text) {
  * @param {string} text - raw AI response
  * @returns {Array<{name, timing, rationale, interaction}>}
  */
+/**
+ * Specific drug names the tool must never print, mapped to the class it says
+ * instead. Sano's naming policy is drug-class-only: the tool states the
+ * therapeutic intent and the clinician chooses the agent and the dose. A brand
+ * or molecule name in a generated report reads as a prescription the clinician
+ * did not write.
+ *
+ * Exported so the evaluation rubric can check the same list against the whole
+ * report rather than re-declaring it and drifting out of step.
+ */
+export const DRUG_CLASS_BY_NAME = {
+  rosuvastatin:  "a statin",
+  atorvastatin:  "a statin",
+  simvastatin:   "a statin",
+  pravastatin:   "a statin",
+  ezetimibe:     "a cholesterol absorption inhibitor",
+  metformin:     "a biguanide",
+  levothyroxine: "thyroid hormone replacement",
+  lisinopril:    "an ACE inhibitor",
+  amlodipine:    "a calcium channel blocker",
+  metoprolol:    "a beta blocker",
+};
+
+export const BANNED_DRUGS = Object.keys(DRUG_CLASS_BY_NAME);
+
+/**
+ * Replace any specific drug name with its class.
+ * Used on the free-text fields of a supplement, where a drug name is a leak
+ * rather than the point of the line.
+ */
+export function redactDrugNames(str) {
+  if (!str) return str;
+  var out = str;
+  BANNED_DRUGS.forEach(function(drug) {
+    out = out.replace(new RegExp(drug, "gi"), DRUG_CLASS_BY_NAME[drug]);
+  });
+  return out;
+}
+
 export function parseSupplements(text) {
   const lines = toLines(text);
   const supplements = [];
-
-  // Drug names that should never appear (enforce drug-class-only policy)
-  const BANNED_DRUGS = [
-    "rosuvastatin", "atorvastatin", "simvastatin", "pravastatin",
-    "ezetimibe", "metformin", "levothyroxine", "lisinopril",
-    "amlodipine", "metoprolol",
-  ];
 
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];
@@ -387,7 +431,8 @@ export function parseSupplements(text) {
     // Enforce iron bisglycinate -> Iron supplement
     name = name.replace(/iron bisglycinate/gi, "Iron supplement");
 
-    // Check for banned specific drug names
+    // A banned name in the NAME field means the line is recommending the drug
+    // itself, so the whole recommendation is dropped.
     var hasBannedDrug = BANNED_DRUGS.some(function(drug) {
       return name.toLowerCase().includes(drug.toLowerCase());
     });
@@ -396,11 +441,15 @@ export function parseSupplements(text) {
       continue;
     }
 
+    // A banned name in a free-text field is a leak in otherwise useful advice,
+    // so the drug is replaced by its class and the recommendation is kept.
+    // Scanning only the name here was a real hole: "Omega-3 | AM | synergistic
+    // with atorvastatin" printed the molecule despite the policy.
     supplements.push({
       name:        name,
-      timing:      clean(parts[1]) || "",
-      rationale:   clean(parts[2]) || "",
-      interaction: clean(parts[3]) || "None identified",
+      timing:      redactDrugNames(clean(parts[1])) || "",
+      rationale:   redactDrugNames(clean(parts[2])) || "",
+      interaction: redactDrugNames(clean(parts[3])) || "None identified",
     });
   }
 
