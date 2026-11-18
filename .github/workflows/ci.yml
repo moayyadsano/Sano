@@ -1,0 +1,58 @@
+# Sano CI
+# -----------------------------------------------------------------------------
+# Runs on every push and pull request, BEFORE Vercel builds the deployment.
+#
+# Why this exists: a previous release broke production because src/lib/parser.js
+# was uploaded containing App.jsx's contents. Vercel was the first thing to
+# notice, by failing the build, and the site was already down by then. The build
+# step below catches that class of mistake in about a minute, on GitHub, with
+# nothing deployed.
+#
+# Three gates, cheapest first:
+#   build  does the app still compile
+#   test   do the deterministic units still behave (168 cases, no network)
+#   eval   do all 12 clinical fixtures pass the safety rubric, and does the
+#          rubric still catch all 10 adversarial reports
+#
+# None of this calls the model, so CI is free and deterministic. The live
+# evaluation (`npm run eval:live`) is run deliberately, by hand, against a
+# deployment.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Node 20+ ships the built-in test runner `npm test` relies on.
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Pure functions only: units, parser, context, rubric.
+      - name: Unit tests
+        run: npm test
+
+      # The clinical gate. Fails if any fixture has a blocking rubric failure,
+      # or if any adversarial report slips past the check written to catch it.
+      - name: Clinical evaluation
+        run: npm run eval
