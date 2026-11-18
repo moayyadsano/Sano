@@ -8,10 +8,14 @@
  * 2. The string contains the required structural markers the parser depends on
  * 3. Edge cases: empty context, missing fields, smoking flag, no medications
  *
- * Run with: node --experimental-vm-modules node_modules/.bin/jest
- * Or:       npm test
+ * Run with: npm test
+ *
+ * PH1-EVAL-01: these were written against Jest's globals and, because the repo
+ * had no test runner, had never actually been executed. Wiring them to the
+ * harness is what finally ran them.
  */
 
+import { describe, test, expect } from "../testing/harness.js";
 import {
   SYS,
   PROMPT_BUNDLE_VERSION,
