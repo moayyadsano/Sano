@@ -9,140 +9,20 @@ const C = {
   warn:"#7A4F00",
 };
 
-// ─── Unit system (SI default per physician choice) ────────────────────────────
-// All internal values stored in SI. Display converts on the fly.
-const UNITS = {
-  SI: {
-    cholesterol: "mmol/L", glucose: "mmol/L", vitD: "nmol/L",
-    apoB: "mg/dL",   // ApoB universally mg/dL
-    lpa:  "nmol/L",
-    hsCRP:"mg/L", hba1c:"%", ferritin:"ng/mL", b12:"pg/mL",
-    creatinine:"umol/L", alt:"U/L", ast:"U/L", albumin:"g/L",
-    alp:"U/L", wbc:"10^9/L", lymph:"%", mcv:"fL", rdw:"%",
-    testosterone:"nmol/L", estradiol:"pmol/L", progesterone:"nmol/L",
-    shbg:"nmol/L", dheas:"umol/L", cortisol:"nmol/L", tsh:"mIU/L",
-    ft3:"pmol/L", ft4:"pmol/L", prolactin:"mIU/L",
-    lh:"IU/L", fsh:"IU/L",
-    weight:"kg", height:"cm", waist:"cm", bp:"mmHg", hr:"bpm",
-    uacr:"mg/mmol", homocysteine:"umol/L", triglycerides:"mmol/L",
-    grip:"kg", vo2max:"mL/kg/min",
-  },
-  CONV: {
-    cholesterol:"mg/dL", glucose:"mg/dL", vitD:"ng/mL",
-    apoB:"mg/dL", lpa:"mg/dL", hsCRP:"mg/L", hba1c:"%",
-    ferritin:"ng/mL", b12:"pg/mL", creatinine:"mg/dL",
-    alt:"U/L", ast:"U/L", albumin:"g/dL", alp:"U/L",
-    wbc:"10^9/L", lymph:"%", mcv:"fL", rdw:"%",
-    testosterone:"ng/dL", estradiol:"pg/mL", progesterone:"ng/mL",
-    shbg:"nmol/L", dheas:"ug/dL", cortisol:"ug/dL", tsh:"mIU/L",
-    ft3:"pg/mL", ft4:"ng/dL", prolactin:"ng/mL",
-    lh:"IU/L", fsh:"IU/L",
-    weight:"kg", height:"cm", waist:"cm", bp:"mmHg", hr:"bpm",
-    uacr:"mg/g", homocysteine:"umol/L", triglycerides:"mg/dL",
-    grip:"kg", vo2max:"mL/kg/min",
-  },
+
+
+
+
+
+
+// PREVENT returns a semantic severity; the colour mapping is a UI concern.
+const PREVENT_COLOR = {
+  low:          C.green,
+  borderline:   C.gold,
+  intermediate: C.amber,
+  high:         C.red,
 };
-
-// Conversion factors SI → CONV (multiply SI value to get CONV)
-const TO_CONV = {
-  cholesterol: 38.67,   // mmol/L → mg/dL
-  glucose: 18.02,
-  vitD: 0.4006,         // nmol/L → ng/mL  (divide by 2.496)
-  triglycerides: 88.57,
-  creatinine: 0.01131,  // umol/L → mg/dL
-  testosterone: 28.84,  // nmol/L → ng/dL
-  estradiol: 0.2724,    // pmol/L → pg/mL
-  progesterone: 0.3145, // nmol/L → ng/mL
-  dheas: 0.2714,        // umol/L → ug/dL
-  cortisol: 0.0363,     // nmol/L → ug/dL
-  ft3: 0.6513,          // pmol/L → pg/mL
-  ft4: 0.7772,          // pmol/L → ng/dL
-  prolactin: 0.0465,    // mIU/L → ng/mL
-  albumin: 0.1,         // g/L → g/dL
-  lpa: 0.4069,          // nmol/L → mg/dL (approx, Lp(a) mass)
-  uacr: 8.84,           // mg/mmol → mg/g
-  homocysteine: 1,
-};
-
-function toDisplay(val, analyte, unitSys) {
-  if (val === "" || val === null || val === undefined) return "";
-  const n = parseFloat(val);
-  if (isNaN(n)) return val;
-  if (unitSys === "CONV" && TO_CONV[analyte]) return (n * TO_CONV[analyte]).toFixed(2);
-  return val;
-}
-function toSI(val, analyte, unitSys) {
-  if (val === "" || val === null || val === undefined) return "";
-  const n = parseFloat(val);
-  if (isNaN(n)) return val;
-  if (unitSys === "CONV" && TO_CONV[analyte]) return String(n / TO_CONV[analyte]);
-  return String(val);
-}
-function unitLabel(analyte, unitSys) {
-  return UNITS[unitSys]?.[analyte] || "";
-}
-
-// ─── Analyte plausibility ranges (SI units) ──────────────────────────────────
-// Values outside these ranges are flagged as implausible and excluded from analysis
-// Ranges are generous physiologic bounds — not treatment targets
-const PLAUSIBILITY = {
-  ldl:       { min:0.5,  max:15.0,  label:"LDL-C (mmol/L)" },
-  hdl:       { min:0.2,  max:5.0,   label:"HDL-C (mmol/L)" },
-  tc:        { min:1.5,  max:20.0,  label:"Total Cholesterol (mmol/L)" },
-  tg:        { min:0.2,  max:30.0,  label:"Triglycerides (mmol/L)" },
-  apoB:      { min:20,   max:300,   label:"ApoB (mg/dL)" },
-  lpa:       { min:1,    max:1000,  label:"Lp(a) (nmol/L)" },
-  hsCRP:     { min:0.01, max:200,   label:"hs-CRP (mg/L)" },
-  homocys:   { min:2,    max:200,   label:"Homocysteine (umol/L)" },
-  glucose:   { min:2.0,  max:40.0,  label:"Fasting Glucose (mmol/L)" },
-  insulin:   { min:1,    max:300,   label:"Fasting Insulin (uIU/mL)" },
-  homaIR:    { min:0.1,  max:50,    label:"HOMA-IR" },
-  hba1c:     { min:3.0,  max:20.0,  label:"HbA1c (%)" },
-  tsh:       { min:0.01, max:150,   label:"TSH (mIU/L)" },
-  ft3:       { min:0.5,  max:30,    label:"Free T3 (pmol/L)" },
-  ft4:       { min:1,    max:60,    label:"Free T4 (pmol/L)" },
-  dheas:     { min:0.1,  max:30,    label:"DHEA-S (umol/L)" },
-  cortisol:  { min:10,   max:3000,  label:"Cortisol (nmol/L)" },
-  shbg:      { min:2,    max:500,   label:"SHBG (nmol/L)" },
-  testTotal: { min:0.5,  max:70,    label:"Total Testosterone (nmol/L)" },
-  testFree:  { min:0.5,  max:1000,  label:"Free Testosterone (pmol/L)" },
-  estradiol: { min:10,   max:5000,  label:"Estradiol (pmol/L)" },
-  progesterone:{min:0.1, max:300,   label:"Progesterone (nmol/L)" },
-  lh:        { min:0.1,  max:200,   label:"LH (IU/L)" },
-  fsh:       { min:0.1,  max:200,   label:"FSH (IU/L)" },
-  prolactin: { min:10,   max:20000, label:"Prolactin (mIU/L)" },
-  vitD:      { min:5,    max:500,   label:"Vitamin D (nmol/L)" },
-  b12:       { min:50,   max:5000,  label:"Vitamin B12 (pg/mL)" },
-  ferritin:  { min:1,    max:10000, label:"Ferritin (ng/mL)" },
-  creatinine:{ min:20,   max:2000,  label:"Creatinine (umol/L)" },
-  alt:       { min:2,    max:5000,  label:"ALT (U/L)" },
-  ast:       { min:2,    max:5000,  label:"AST (U/L)" },
-  albumin:   { min:10,   max:70,    label:"Albumin (g/L)" },
-  alp:       { min:10,   max:2000,  label:"ALP (U/L)" },
-  wbc:       { min:0.5,  max:200,   label:"WBC (10^9/L)" },
-  lymphPct:  { min:1,    max:95,    label:"Lymphocyte % " },
-  mcv:       { min:50,   max:150,   label:"MCV (fL)" },
-  rdw:       { min:9,    max:40,    label:"RDW (%)" },
-};
-
-function checkPlausibility(labKey, siValue) {
-  const range = PLAUSIBILITY[labKey];
-  if (!range || siValue === "" || siValue === undefined) return null;
-  const n = parseFloat(siValue);
-  if (isNaN(n)) return null;
-  if (n < range.min || n > range.max) {
-    return { key: labKey, label: range.label, value: n, min: range.min, max: range.max };
-  }
-  return null;
-}
-
-function getImplausibleLabs(labs) {
-  return Object.entries(labs)
-    .map(([k, v]) => checkPlausibility(k, v))
-    .filter(Boolean);
-}
-
-
+const preventColor = (r) => (r && PREVENT_COLOR[r.severity]) || C.inkMid;
 
 // ─── Intake steps ─────────────────────────────────────────────────────────────
 const STEPS = [
@@ -268,17 +148,9 @@ const BODY_FIELDS = [
   { key:"grip",    label:"Grip Strength",    unit:"grip" },
 ];
 
-// Domain → which lab keys feed it
-const DOMAIN_INPUTS = {
-  cardiovascular: ["ldl","hdl","tc","tg","apoB","lpa","hsCRP","homocys"],
-  metabolic:      ["glucose","insulin","homaIR","hba1c","vitD","b12","ferritin"],
-  hormonal:       ["tsh","ft3","ft4","dheas","cortisol","shbg","testTotal","testFree","estradiol","progesterone","lh","fsh","prolactin"],
-  longevity:      ["albumin","alp","wbc","lymphPct","mcv","rdw"],
-  physical:       ["creatinine","alt","ast"],
-};
 
-// PhenoAge inputs (Levine 2018)
-const PHENOAGE_KEYS = ["albumin","creatinine","glucose","hsCRP","lymphPct","mcv","rdw","alp","wbc"];
+
+
 
 const blank = () => ({
   patient:  { name:"", age:"", sex:"Male", chiefGoal:"Longevity & Prevention", targetPhilosophy:"Guideline-based" },
@@ -290,204 +162,13 @@ const blank = () => ({
   body:     {},
 });
 
-// ─── Completeness ─────────────────────────────────────────────────────────────
-function computeCompleteness(form, sex) {
-  const allLabKeys = LAB_GROUPS.flatMap(g => g.analytes.filter(a => !a.sexFilter || a.sexFilter === sex).map(a => a.key));
-  const bodyKeys   = BODY_FIELDS.map(f => f.key);
-  const lifKeys    = LIFESTYLE_FIELDS.map(f => f.key);
-  const total      = allLabKeys.length + bodyKeys.length + lifKeys.length + 5; // +5 patient basics
-  const filled     = [
-    ...allLabKeys.filter(k => form.labs[k] !== "" && form.labs[k] !== undefined),
-    ...bodyKeys.filter(k => form.body[k] !== "" && form.body[k] !== undefined),
-    ...lifKeys.filter(k => form.lifestyle[k] !== "" && form.lifestyle[k] !== undefined),
-    ...["name","age"].filter(k => form.patient[k] !== ""),
-  ].length + 3; // sex + goal + philosophy always filled
-  return { filled, total, pct: Math.round((filled / total) * 100) };
-}
 
-// ─── Domain coverage (PH1-AI-04) ──────────────────────────────────────────────
-// Reports how many inputs each clinical domain actually has.
-// Never returns null: an empty domain is reported explicitly as absent, so the
-// AI can be told "no data for this domain" rather than silently inventing one.
 
-const DOMAIN_LABELS = {
-  cardiovascular: "Cardiovascular",
-  metabolic:      "Metabolic",
-  hormonal:       "Hormonal",
-  longevity:      "Longevity biomarkers",
-  physical:       "Physical and organ function",
-};
 
-// Body-composition fields that count toward the physical domain
-const PHYSICAL_BODY_KEYS = ["weight","height","bmi","bodyFat","muscle","waist","sbp","dbp","hr","vo2max","grip"];
 
-// Hormone panels are sex-specific: exclude the panel that does not apply,
-// otherwise a male patient looks like he is missing 5 female hormones.
-function domainKeysForSex(domain, sex) {
-  const keys = DOMAIN_INPUTS[domain] || [];
-  if (domain !== "hormonal") return keys;
-  const MALE_ONLY   = ["testTotal","testFree"];
-  const FEMALE_ONLY = ["estradiol","progesterone","lh","fsh","prolactin"];
-  return keys.filter(function(k) {
-    if (sex === "Male")   return FEMALE_ONLY.indexOf(k) === -1;
-    if (sex === "Female") return MALE_ONLY.indexOf(k) === -1;
-    return true;
-  });
-}
 
-function computeDomainCoverage(form, sex) {
-  const labs = form.labs || {};
-  const body = form.body || {};
-  const has  = function(obj, k) { return obj[k] !== "" && obj[k] !== undefined && obj[k] !== null; };
 
-  const out = {};
-  Object.keys(DOMAIN_INPUTS).forEach(function(domain) {
-    const keys  = domainKeysForSex(domain, sex);
-    let present = keys.filter(function(k) { return has(labs, k); }).length;
-    let total   = keys.length;
 
-    if (domain === "physical") {
-      present += PHYSICAL_BODY_KEYS.filter(function(k) { return has(body, k); }).length;
-      total   += PHYSICAL_BODY_KEYS.length;
-    }
-
-    out[domain] = {
-      label:   DOMAIN_LABELS[domain] || domain,
-      present: present,
-      total:   total,
-      pct:     total ? Math.round((present / total) * 100) : 0,
-      absent:  present === 0,
-    };
-  });
-  return out;
-}
-
-// Confidence band derived from overall completeness
-function confidenceLabel(pct) {
-  if (pct >= 70) return "Good";
-  if (pct >= 40) return "Moderate";
-  return "Low";
-}
-
-// ─── PhenoAge eligibility ─────────────────────────────────────────────────────
-function phenoAgeEligible(labs) {
-  return PHENOAGE_KEYS.every(k => labs[k] !== "" && labs[k] !== undefined);
-}
-
-// ─── PREVENT calculation (AHA PREVENT, Khan et al. Circ 2023) ───────────────
-// Implementation note: Uses calibrated baseline hazard ln_H0 derived to match
-// AHA PREVENT online calculator outputs. Coefficients from Khan et al. Table S1.
-// Validated test case: 50M TC=5.0 HDL=1.3 SBP=120 no risk factors → 4.3% (AHA tool: ~4%)
-// DISCLAIMER: This is an approximation. For authoritative risk use tools.acc.org/ASCVD-risk-estimator
-//
-// UNIT REQUIREMENTS (must convert before calling):
-//   tc, hdl: mmol/L (ALWAYS — independent of display toggle)
-//   sbp: mmHg, egfr: mL/min/1.73m², age: years 30-79
-
-function calcPREVENT(p, unitSys) {
-  const age  = parseFloat(p.pAge);
-  const sbp  = parseFloat(p.pSBP);
-  const bmi  = parseFloat(p.pBMI);
-  const egfr = parseFloat(p.pEGFR);
-  const dm   = p.pDM    === "Yes" ? 1 : 0;
-  const smk  = p.pSmoke === "Yes" ? 1 : 0;
-  const bpt  = p.pBPtx  === "Yes" ? 1 : 0;
-  const sex  = p.pSex;
-
-  // ── Cholesterol: ALWAYS convert to mmol/L for the equation ──
-  // regardless of what the display toggle shows
-  let tc_raw  = parseFloat(p.pTC);
-  let hdl_raw = parseFloat(p.pHDL);
-  let tc_mmol, hdl_mmol;
-  if (unitSys === "CONV") {
-    // User entered mg/dL — convert to mmol/L for equation
-    tc_mmol  = tc_raw  / 38.67;
-    hdl_mmol = hdl_raw / 38.67;
-  } else {
-    // User entered mmol/L — use directly
-    tc_mmol  = tc_raw;
-    hdl_mmol = hdl_raw;
-  }
-
-  // ── Validate age range ──
-  if (isNaN(age) || age < 30 || age > 79) return null;
-
-  // ── Require minimum inputs ──
-  if ([tc_mmol, hdl_mmol, sbp].some(isNaN)) return null;
-  if (isNaN(bmi) && isNaN(egfr)) return null; // need at least one
-
-  const egfrV  = isNaN(egfr) ? 90 : Math.max(egfr, 1);
-  const nonHDL = Math.max(tc_mmol - hdl_mmol, 0.1);
-  const hdlV   = Math.max(hdl_mmol, 0.1);
-
-  let lp, ln_H0;
-
-  if (sex === "Male") {
-    ln_H0 = -3.4655; // Calibrated baseline log-cumulative-hazard, males, 10yr
-    lp = (
-          0.0168 * (age - 55)
-        + 0.4620 * Math.log(sbp / 110)
-        + 0.0850 * bpt
-        - 0.0010 * (age - 55) * (sbp - 110)
-        + 0.2813 * Math.log(nonHDL)
-        - 0.1157 * Math.log(hdlV)
-        + 0.5180 * dm
-        + 0.3580 * smk
-        - 0.0261 * Math.max(0, Math.log(egfrV / 60))
-    );
-  } else {
-    ln_H0 = -3.6155; // Calibrated baseline log-cumulative-hazard, females, 10yr
-    lp = (
-          0.0196 * (age - 55)
-        + 0.4312 * Math.log(sbp / 110)
-        + 0.0897 * bpt
-        - 0.0009 * (age - 55) * (sbp - 110)
-        + 0.2461 * Math.log(nonHDL)
-        - 0.1209 * Math.log(hdlV)
-        + 0.5100 * dm
-        + 0.3580 * smk
-        - 0.0261 * Math.max(0, Math.log(egfrV / 60))
-    );
-  }
-
-  const rawRisk = (1 - Math.exp(-Math.exp(ln_H0 + lp))) * 100;
-
-  // ── Age-band plausibility ceiling ──
-  // A 35yo cannot have 50% 10-year CVD risk; surface warning if exceeded
-  const CEILING = age < 40 ? 25 : age < 50 ? 35 : age < 60 ? 50 : age < 70 ? 65 : 80;
-  const implausible = rawRisk > CEILING;
-  const risk = Math.min(Math.max(rawRisk, 0.1), 99.9);
-
-  let cat, color, lipidGoal, rec;
-  if (risk < 5) {
-    cat="Low Risk (<5%)"; color=C.green;
-    lipidGoal="LDL-C <2.6 mmol/L (100 mg/dL) | Non-HDL <3.4 mmol/L";
-    rec="Lifestyle optimisation. Reassess in 4-6 years. (ACC/AHA 2019)";
-  } else if (risk < 7.5) {
-    cat="Borderline Risk (5-<7.5%)"; color=C.gold;
-    lipidGoal="LDL-C <2.6 mmol/L (100 mg/dL) | Non-HDL <3.4 mmol/L";
-    rec="Assess risk enhancers. Shared decision-making re lipid-lowering. Consider CAC scoring. (ACC/AHA 2019)";
-  } else if (risk < 20) {
-    cat="Intermediate Risk (7.5-<20%)"; color=C.amber;
-    lipidGoal="LDL-C <2.6 mmol/L (100 mg/dL) | Non-HDL <3.4 mmol/L";
-    rec="Statin therapy class favoured. Clinician selects agent and intensity. Evaluate risk enhancers. (ACC/AHA 2019)";
-  } else {
-    cat="High Risk (>=20%)"; color=C.red;
-    lipidGoal="LDL-C <1.8 mmol/L (70 mg/dL) | ApoB <65 mg/dL";
-    rec="High-intensity statin class indicated. Clinician selects agent and dose. Aggressive BP and metabolic management. (ACC/AHA 2019)";
-  }
-
-  return {
-    risk: risk.toFixed(1),
-    category: cat, color, lipidGoal, recommendation: rec,
-    implausible,
-    implausibleNote: implausible
-      ? `Computed risk (${risk.toFixed(1)}%) exceeds plausibility ceiling for age ${age} (${CEILING}%). Verify all inputs. Use AHA online calculator to confirm.`
-      : null,
-    source: "AHA PREVENT 10-year CVD risk (Khan et al., Circulation 2023) — approximation; verify at tools.acc.org/ASCVD-risk-estimator",
-    horizon: "10-year"
-  };
-}
 
 
 async function askAI(systemPrompt, userMsg) {
@@ -540,6 +221,15 @@ import {
   parseFollowUp,
   PARSER_VERSION,
 } from "./lib/parser.js";
+// ─── Deterministic algorithms ────────────────────────────────────────────────
+// Pure, React-free, unit-tested. See src/lib/algorithms/.
+import {
+  toDisplay, toSI, unitLabel,
+  getImplausibleLabs,
+  computeCompleteness, computeDomainCoverage, confidenceLabel,
+  phenoAgeEligible,
+  calcPREVENT,
+} from "./lib/algorithms/index.js";
 
 // ─── AI call wrappers ─────────────────────────────────────────────────────────
 // These functions call askAI with the correct prompt and parse the response.
@@ -752,8 +442,8 @@ function downloadReport(form, result, preventResult, completeness, unitSys, abse
   const warnBanner = noMeds ? `<div style="padding:10px 14px;background:#FFF8EC;border:1px solid #F0DDB5;border-radius:6px;margin-bottom:12px;font-size:12px;color:#8B5E14;">⚠ Medication reconciliation not completed — review supplement recommendations before use.</div>` : "";
   const prevSection = preventResult ? `<h2>AHA PREVENT — 10-Year CVD Risk</h2>
     <div style="padding:14px;background:#F5F8F5;border:1px solid #C5DDCF;border-radius:8px;margin-bottom:16px;">
-      <strong style="font-size:24px;color:${preventResult.color};">${preventResult.risk}%</strong>
-      <strong style="margin-left:12px;color:${preventResult.color};">${preventResult.category}</strong>
+      <strong style="font-size:24px;color:${preventColor(preventResult)};">${preventResult.risk}%</strong>
+      <strong style="margin-left:12px;color:${preventColor(preventResult)};">${preventResult.category}</strong>
       <div style="margin-top:8px;font-size:13px;color:#5A554D;">${preventResult.recommendation}</div>
       <div style="margin-top:6px;font-size:12px;color:#4A7C65;"><strong>Lipid goal:</strong> ${preventResult.lipidGoal}</div>
       <div style="margin-top:4px;font-size:11px;color:#9A9489;">Source: ${preventResult.source}</div>
@@ -818,7 +508,14 @@ export default function App() {
     setForm(f => ({...f, [section]:{...f[section],[key]:val}}));
   }
 
-  const completeness = useMemo(() => computeCompleteness(form, sex), [form, sex]);
+  // The algorithms module knows nothing about the UI schema, so hand it the
+  // field keys that apply to this patient (sex decides which hormone panel counts).
+  const fieldKeys = useMemo(() => ({
+    labs:      LAB_GROUPS.flatMap(g => g.analytes.filter(a => !a.sexFilter || a.sexFilter === sex).map(a => a.key)),
+    body:      BODY_FIELDS.map(f => f.key),
+    lifestyle: LIFESTYLE_FIELDS.map(f => f.key),
+  }), [sex]);
+  const completeness = useMemo(() => computeCompleteness(form, fieldKeys), [form, fieldKeys]);
 
   // PH1-AI-04: per-domain coverage drives both the dials and the AI's absent-domain rules
   const domainCoverage = useMemo(() => computeDomainCoverage(form, sex), [form, sex]);
@@ -1227,8 +924,8 @@ export default function App() {
             <div style={{background:"#F5F8F5",border:`1px solid #C5DDCF`,borderRadius:10,padding:"16px 22px",marginBottom:14}} className="fade">
               <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap",marginBottom:10}}>
                 <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:30,fontWeight:700,color:prevent.color}}>{prevent.risk}%</div>
-                  <div style={{fontSize:11,fontWeight:700,color:prevent.color,fontFamily:"'DM Mono',monospace"}}>{prevent.category}</div>
+                  <div style={{fontSize:30,fontWeight:700,color:preventColor(prevent)}}>{prevent.risk}%</div>
+                  <div style={{fontSize:11,fontWeight:700,color:preventColor(prevent),fontFamily:"'DM Mono',monospace"}}>{prevent.category}</div>
                 </div>
                 <div style={{flex:1}}>
                   <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",color:C.accentMid,marginBottom:4}}>AHA PREVENT — 10-Year CVD Risk</div>
