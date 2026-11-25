@@ -10,9 +10,9 @@
 #
 # Three gates, cheapest first:
 #   build  does the app still compile
-#   test   do the deterministic units still behave (168 cases, no network)
+#   test   do the deterministic units still behave (227 cases, no network)
 #   eval   do all 12 clinical fixtures pass the safety rubric, and does the
-#          rubric still catch all 10 adversarial reports
+#          rubric still catch all 11 adversarial reports
 #
 # None of this calls the model, so CI is free and deterministic. The live
 # evaluation (`npm run eval:live`) is run deliberately, by hand, against a
