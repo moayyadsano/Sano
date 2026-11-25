@@ -348,6 +348,59 @@ describe("no-biological-age-when-ineligible", () => {
   });
 });
 
+describe("stated-biological-age-matches-the-computed-one", () => {
+  const withPheno = { phenoAge: { phenoAge: "35.7", chronoAge: "44", deltaLabel: "-8.3 years" } };
+
+  test("rejects a figure that disagrees with the computed one", () => {
+    expectDiscriminates("stated-biological-age-matches-the-computed-one", goodInput({
+      ...withPheno,
+      report: {
+        ...goodInput().report,
+        overview: { summary: "Biological age 40, somewhat below chronological age." },
+      },
+    }));
+  });
+
+  test("accepts the computed figure restated exactly", () => {
+    const r = runCheck("stated-biological-age-matches-the-computed-one", goodInput({
+      ...withPheno,
+      report: { ...goodInput().report, overview: { summary: "Phenotypic age 35.7 years." } },
+    }));
+    expect(r.pass).toBe(true);
+  });
+
+  test("tolerates rounding to the same number", () => {
+    // 35.7 printed as 35.7 or 36 is the same figure; 40 is a different one.
+    for (const stated of ["35.7", "36", "35.5"]) {
+      const r = runCheck("stated-biological-age-matches-the-computed-one", goodInput({
+        ...withPheno,
+        report: { ...goodInput().report, overview: { summary: `Biological age ${stated}.` } },
+      }));
+      expect(r.pass).toBe(true);
+    }
+  });
+
+  test("catches a disagreeing figure anywhere in the report, not just the summary", () => {
+    const r = runCheck("stated-biological-age-matches-the-computed-one", goodInput({
+      ...withPheno,
+      report: {
+        ...goodInput().report,
+        findings: [{ priority: "Low", title: "Longevity", detail: "Phenotypic age 52 on these markers", inputsUsed: "" }],
+      },
+    }));
+    expect(r.pass).toBe(false);
+  });
+
+  test("is silent when no phenotypic age was computed", () => {
+    const r = runCheck("stated-biological-age-matches-the-computed-one", goodInput({
+      phenoAge: null,
+      report: { ...goodInput().report, overview: { summary: "Biological age 40." } },
+    }));
+    // The other check, no-biological-age-when-ineligible, owns that case.
+    expect(r.pass).toBe(true);
+  });
+});
+
 describe("most-urgent-finding-first", () => {
   test("rejects a Critical finding printed below a Low one", () => {
     // The exact production bug: ORDER["Critical"] is 0, which `|| 3` made Low.

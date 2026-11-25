@@ -17,7 +17,11 @@ export {
   domainKeysForSex, computeCompleteness, computeDomainCoverage, confidenceLabel,
 } from "./completeness.js";
 
-export { PHENOAGE_KEYS, phenoAgeEligible } from "./phenoAge.js";
+export {
+  PHENOAGE_KEYS, PHENOAGE_LABELS, phenoAgeEligible, missingPhenoAgeInputs,
+  calcPhenoAge, PHENOAGE_DISCLAIMER, PHENOAGE_SEVERITY_ORDER,
+  PHENOAGE_MIN_AGE, PHENOAGE_MAX_AGE,
+} from "./phenoAge.js";
 
 export { calcPREVENT, PREVENT_DISCLAIMER, PREVENT_SEVERITY_ORDER } from "./prevent.js";
 

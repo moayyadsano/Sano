@@ -271,6 +271,39 @@ export const CHECKS = [
     },
   },
 
+  {
+    id: "stated-biological-age-matches-the-computed-one",
+    severity: "blocking",
+    describe: "Any biological age in the report is the one the model computed, not a different number",
+    run({ report, phenoAge }) {
+      if (!phenoAge) return ok(this.id, this.severity, "no phenotypic age computed for this case");
+
+      // The complement of no-biological-age-when-ineligible. There, the risk is
+      // a number appearing from nowhere. Here the number legitimately exists,
+      // and the risk is the model restating it slightly differently — rounding
+      // it, averaging it with chronological age, or recalling a figure from
+      // earlier in the conversation. A patient will quote whichever one they
+      // read, so the two must not disagree.
+      const computed = parseFloat(phenoAge.phenoAge);
+      const blob = reportText(report);
+      const offenders = [];
+
+      const re = /(?:biological|phenotypic|pheno)\s*age[^.\n\d]{0,24}(\d{1,3}(?:\.\d)?)/gi;
+      let m;
+      while ((m = re.exec(blob)) !== null) {
+        const stated = parseFloat(m[1]);
+        // Half a year of tolerance: the figure is published to one decimal, so
+        // anything further out is a different number, not a rounding.
+        if (Math.abs(stated - computed) > 0.5) offenders.push(stated);
+      }
+
+      return offenders.length
+        ? bad(this.id, this.severity,
+            `report states biological age ${offenders.join(", ")} but the model computed ${computed}`)
+        : ok(this.id, this.severity, `stated age agrees with the computed ${computed}`);
+    },
+  },
+
   // ── ordering and traceability ──────────────────────────────────────────
   {
     id: "most-urgent-finding-first",

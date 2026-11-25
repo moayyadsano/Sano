@@ -234,14 +234,20 @@ export const FIXTURES = [
     why: "The gate must open only when every one of the nine is there.",
     unitSys: "SI",
     form: record({ patient: { age: "44", sex: "Male" }, labs: { ...PHENOAGE_LABS } }),
-    expect: { phenoAgeEligible: true, noFabricatedValues: true },
+    expect: {
+      phenoAgeEligible: true,
+      phenoAgeReported: true,
+      statedAgeMatchesComputed: true,
+      noFabricatedValues: true,
+    },
   },
   {
     id: "phenoage-one-short",
     label: "Eight of nine PhenoAge inputs",
     why: "RDW is missing. A biological age computed from eight of nine inputs is a " +
          "number with no meaning, and it would be believed. The tool must name the " +
-         "gap instead of estimating round it.",
+         "gap instead of estimating round it, and must name RDW specifically rather " +
+         "than restating all nine requirements.",
     unitSys: "SI",
     form: record({
       patient: { age: "44", sex: "Male" },

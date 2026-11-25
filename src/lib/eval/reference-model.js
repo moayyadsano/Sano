@@ -41,9 +41,15 @@ export function referenceOverview(ctx) {
   const summary = n === 0
     ? "No measurements were entered, so no clinical assessment can be made from this record."
     : `Assessment based on ${n} entered measurement${n === 1 ? "" : "s"}; confidence ${conf.toLowerCase()}.`;
+  // When the context carries a phenotypic age, a rule-obeying model restates
+  // THAT figure rather than producing its own.
+  const pheno = ctx["Phenotypic age (Levine 2018)"];
+  const longevity = pheno
+    ? `Phenotypic age ${pheno}, derived from the nine Levine inputs.`
+    : "PhenoAge requires albumin, creatinine, glucose, CRP, lymphocyte %, MCV, RDW, ALP and WBC; it is reported only when all nine are present.";
   return [
     `SUMMARY: ${summary}`,
-    `LONGEVITY: PhenoAge requires albumin, creatinine, glucose, CRP, lymphocyte %, MCV, RDW, ALP and WBC; it is reported only when all nine are present.`,
+    `LONGEVITY: ${longevity}`,
   ].join("\n");
 }
 

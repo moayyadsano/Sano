@@ -19,6 +19,17 @@ const PREVENT_COLOR = {
 };
 const preventColor = (r) => (r && PREVENT_COLOR[r.severity]) || C.inkMid;
 
+// PhenoAge returns a semantic severity; younger reads positive, older reads as
+// something to look into. The colour mapping is a UI concern, as with PREVENT.
+const PHENOAGE_COLOR = {
+  "much-younger": C.green,
+  younger:        C.green,
+  aligned:        C.inkMid,
+  older:          C.amber,
+  "much-older":   C.red,
+};
+const phenoColor = (r) => (r && PHENOAGE_COLOR[r.severity]) || C.inkMid;
+
 
 async function askAI(systemPrompt, userMsg) {
   const combinedMsg = systemPrompt + "\n\n---\n\n" + userMsg;
@@ -84,7 +95,7 @@ import {
   toDisplay, toSI, unitLabel,
   getImplausibleLabs,
   computeCompleteness, computeDomainCoverage, confidenceLabel,
-  phenoAgeEligible,
+  phenoAgeEligible, missingPhenoAgeInputs, calcPhenoAge, PHENOAGE_DISCLAIMER,
   calcPREVENT, PREVENT_DISCLAIMER,
 } from "./lib/algorithms/index.js";
 
@@ -102,8 +113,6 @@ async function getOverview(ctx) {
     parserVersion: PARSER_VERSION,
     scores: { overall:null, cardiovascular:null, metabolic:null, hormonal:null, longevity:null, physical:null },
     scoresBasis: { overall:"See domain coverage dials", cardiovascular:"See domain coverage dials", metabolic:"See domain coverage dials", hormonal:"See domain coverage dials", longevity:"See domain coverage dials", physical:"See domain coverage dials" },
-    phenoAgeEligible: false,
-    phenoAgeNote: "PhenoAge requires: albumin, creatinine, glucose, CRP, lymphocyte %, MCV, RDW, ALP, WBC"
   };
 }
 
@@ -218,13 +227,26 @@ function Dial({ label, scoreObj }) {
 const TABS = ["overview","findings","targets","action","nutrition","exercise","supplements","monitoring"];
 
 // ─── PDF Export ───────────────────────────────────────────────────────────────
-function downloadReport(form, result, preventResult, completeness, unitSys, absentDomains) {
+function downloadReport(form, result, preventResult, completeness, unitSys, absentDomains, phenoResult) {
   const name = form.patient.name || "Patient";
   const date = new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});
   const absentList = (absentDomains && absentDomains.length) ? absentDomains : [];
   const absentNote = absentList.length ? " \u00b7 No data: " + absentList.join(", ") : "";
   const noMeds = !form.history.medications;
   const warnBanner = noMeds ? `<div style="padding:10px 14px;background:#FFF8EC;border:1px solid #F0DDB5;border-radius:6px;margin-bottom:12px;font-size:12px;color:#8B5E14;">⚠ Medication reconciliation not completed — review supplement recommendations before use.</div>` : "";
+  const phenoSection = phenoResult ? `<h2>Phenotypic Age — Levine 2018</h2>
+    <div style="padding:14px;background:#F7F6F2;border:1px solid #E4E0D8;border-radius:8px;margin-bottom:16px;">
+      <strong style="font-size:24px;">${phenoResult.phenoAge}</strong>
+      <span style="font-size:13px;color:#5A554D;"> phenotypic vs ${phenoResult.chronoAge} chronological</span>
+      <strong style="margin-left:12px;">${phenoResult.deltaLabel} &middot; ${phenoResult.category}</strong>
+      <div style="margin-top:8px;font-size:13px;color:#5A554D;">${phenoResult.interpretation}</div>
+      <div style="margin-top:10px;padding:9px 12px;background:#FFFDF6;border:1px solid #EDE0A5;border-radius:5px;">
+        <div style="font-size:10px;font-family:monospace;letter-spacing:0.1em;text-transform:uppercase;color:#8B6914;margin-bottom:4px;">What this number is</div>
+        <div style="font-size:11px;color:#5A554D;line-height:1.5;">${PHENOAGE_DISCLAIMER}</div>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:#9A9489;">${phenoResult.source}</div>
+    </div>` : "";
+
   const prevSection = preventResult ? `<h2>AHA PREVENT — 10-Year CVD Risk</h2>
     <div style="padding:14px;background:#F5F8F5;border:1px solid #C5DDCF;border-radius:8px;margin-bottom:16px;">
       <strong style="font-size:24px;color:${preventColor(preventResult)};">${preventResult.risk}%</strong>
@@ -250,6 +272,7 @@ function downloadReport(form, result, preventResult, completeness, unitSys, abse
     ${warnBanner}
     <h2>Clinical Summary</h2><p style="font-size:14px;line-height:1.7;color:#5A554D;">${result.summary}</p>
     <p style="font-size:13px;line-height:1.7;color:#2D5441;font-style:italic;">${result.longevityNote}</p>
+    ${phenoSection}
     ${prevSection}
     <h2>Key Findings</h2>
     <table><thead><tr style="background:#1E3A2F;color:white"><th>Finding</th><th>Priority</th><th>Detail</th><th>Inputs Used</th></tr></thead><tbody>
@@ -290,6 +313,7 @@ export default function App() {
   const [loadMsg,    setLoadMsg]    = useState("");
   const [result,     setResult]     = useState(null);
   const [prevent,    setPrevent]    = useState(null);
+  const [phenoAge,   setPhenoAge]   = useState(null);
   const [error,      setError]      = useState(null);
   const [tab,        setTab]        = useState("overview");
 
@@ -329,10 +353,15 @@ export default function App() {
 
     const pr = calcPREVENT(form.prevent, unitSys);
     setPrevent(pr);
+    // From cleanLabs, not form.labs: a value quarantined as implausible must
+    // not reach the biological age either.
+    const pa = calcPhenoAge(cleanLabs, form.patient.age);
+    setPhenoAge(pa);
     try {
       // Coverage computed from the CLEANED form, so a quarantined value never counts as present
       const coverage = computeDomainCoverage(cleanForm, form.patient.sex);
       const ctx = buildContext(cleanForm, unitSys, completeness, pr, coverage);
+      if (pa) ctx["Phenotypic age (Levine 2018)"] = pa.phenoAge + " years (" + pa.deltaLabel + " vs chronological)";
       if (flagged.length > 0) ctx["QUARANTINED_VALUES"] = flagged.map(f => f.label + " (" + f.value + " - out of plausible range)").join("; ");
       setLoadMsg("Analysing available biomarkers... (1/4)");
       let r1;
@@ -404,7 +433,7 @@ export default function App() {
             ))}
           </div>
           {result && <button className="btn-s" style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.2)",padding:"5px 14px",fontSize:10}} onClick={()=>{setResult(null);setStep(0);setForm(blank());}}>New Patient</button>}
-          {result && <button className="btn-s" style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.25)",padding:"5px 14px",fontSize:10,background:"rgba(255,255,255,0.08)"}} onClick={()=>downloadReport(form,result,prevent,completeness,unitSys,absentDomains)}>Download PDF</button>}
+          {result && <button className="btn-s" style={{color:"rgba(255,255,255,0.7)",borderColor:"rgba(255,255,255,0.25)",padding:"5px 14px",fontSize:10,background:"rgba(255,255,255,0.08)"}} onClick={()=>downloadReport(form,result,prevent,completeness,unitSys,absentDomains,phenoAge)}>Download PDF</button>}
         </div>
       </header>
 
@@ -701,10 +730,39 @@ export default function App() {
             </p>
           </div>
 
-          {/* PhenoAge note */}
-          {result.phenoAgeNote && (
+          {/* Phenotypic age — a figure when all nine inputs are present,
+              otherwise a precise statement of what is still needed. */}
+          {phenoAge ? (
+            <div style={{background:"#F7F6F2",border:`1px solid ${C.border}`,borderRadius:10,padding:"16px 22px",marginBottom:14}} className="fade">
+              <div style={{display:"flex",alignItems:"center",gap:22,flexWrap:"wrap",marginBottom:10}}>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:30,fontWeight:700,color:phenoColor(phenoAge)}}>{phenoAge.phenoAge}</div>
+                  <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:C.inkLight,letterSpacing:"0.08em",textTransform:"uppercase"}}>phenotypic</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:30,fontWeight:700,color:C.inkLight}}>{phenoAge.chronoAge}</div>
+                  <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:C.inkLight,letterSpacing:"0.08em",textTransform:"uppercase"}}>chronological</div>
+                </div>
+                <div style={{flex:1,minWidth:220}}>
+                  <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",color:C.inkMid,marginBottom:4}}>Phenotypic Age — Levine 2018</div>
+                  <div style={{fontSize:15,fontWeight:700,color:phenoColor(phenoAge),marginBottom:3}}>{phenoAge.deltaLabel} · {phenoAge.category}</div>
+                  <p style={{fontSize:13,color:C.inkMid,lineHeight:1.5}}>{phenoAge.interpretation}</p>
+                </div>
+              </div>
+              <div style={{marginTop:10,padding:"8px 12px",background:"#FFFDF6",border:`1px solid #EDE0A5`,borderRadius:5}}>
+                <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",textTransform:"uppercase",color:C.gold,marginBottom:4}}>What this number is</div>
+                <span style={{fontSize:11,color:C.inkMid,lineHeight:1.5}}>{PHENOAGE_DISCLAIMER}</span>
+              </div>
+              <div className="source" style={{marginTop:8}}>{phenoAge.source} · {phenoAge.horizon}</div>
+            </div>
+          ) : (
             <div style={{padding:"8px 14px",background:"#FFF8EC",border:`1px solid #F0DDB5`,borderRadius:6,marginBottom:14,fontSize:11,color:C.amber,fontFamily:"'DM Mono',monospace"}} className="fade">
-              <strong>Biological Age (PhenoAge, Levine 2018):</strong> {result.phenoAgeEligible ? "Eligible — calculated." : `Not calculable. Missing: ${result.phenoAgeNote}`}
+              <strong>Phenotypic Age (Levine 2018):</strong>{" "}
+              {!form.patient.age
+                ? "Not calculated — the patient's age is needed."
+                : missingPhenoAgeInputs(form.labs).length
+                  ? `Not calculated. Still needed: ${missingPhenoAgeInputs(form.labs).join(", ")}.`
+                  : "Not calculated — outside the age range this model was developed on (20–100)."}
             </div>
           )}
 

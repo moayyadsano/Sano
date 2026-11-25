@@ -19,7 +19,7 @@ import { LAB_GROUPS, BODY_FIELDS, LIFESTYLE_FIELDS } from "../schema.js";
 import { buildContext } from "../context.js";
 import {
   getImplausibleLabs, computeCompleteness, computeDomainCoverage,
-  calcPREVENT, phenoAgeEligible,
+  calcPREVENT, phenoAgeEligible, calcPhenoAge,
 } from "../algorithms/index.js";
 import {
   parseOverview, parseFindings, parseTargets, parseActionPlan,
@@ -58,8 +58,15 @@ export function prepare(form, unitSys) {
   const completeness = computeCompleteness(form, fieldKeysForSex(sex));
   const coverage     = computeDomainCoverage(cleanForm, sex);
   const prevent      = calcPREVENT(form.prevent, unitSys);
+  // From cleanLabs, mirroring App.jsx: a quarantined value must not reach the
+  // biological age either.
+  const phenoAge     = calcPhenoAge(cleanLabs, form.patient.age);
 
   const ctx = buildContext(cleanForm, unitSys, completeness, prevent, coverage);
+  if (phenoAge) {
+    ctx["Phenotypic age (Levine 2018)"] =
+      phenoAge.phenoAge + " years (" + phenoAge.deltaLabel + " vs chronological)";
+  }
   if (implausible.length > 0) {
     ctx["QUARANTINED_VALUES"] = implausible
       .map(f => f.label + " (" + f.value + " - out of plausible range)")
@@ -73,6 +80,7 @@ export function prepare(form, unitSys) {
     coverage,
     implausible,
     phenoEligible: phenoAgeEligible(cleanLabs),
+    phenoAge,
     cleanForm,
   };
 }

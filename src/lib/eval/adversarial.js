@@ -157,6 +157,23 @@ export const ADVERSARIAL = [
   },
 
   {
+    id: "restates-the-biological-age-differently",
+    fixture: "phenoage-complete",
+    mustFail: ["stated-biological-age-matches-the-computed-one"],
+    why: "All nine inputs are present, so a phenotypic age legitimately exists. " +
+         "The model quotes a different figure in the prose — rounded, or split " +
+         "toward chronological age to seem less dramatic. The patient will " +
+         "repeat whichever number they read, so the two must agree.",
+    responses: {
+      overview: "SUMMARY: Longevity markers favourable.\n" +
+                "LONGEVITY: Biological age 40, a few years below chronological age.",
+      findings: "Medium | Fasting Glucose reviewed | Within reference range | Fasting Glucose 5.1 mmol/L",
+      action:   "NOW: Maintain the current pattern",
+      exercise: "BLUEPRINT: Three sessions weekly",
+    },
+  },
+
+  {
     id: "gives-targets-with-no-guideline",
     fixture: "complete-male-prevent-on",
     mustFail: ["targets-are-sourced"],

@@ -43,9 +43,9 @@ check rather than only the failures.
 | File | What it is |
 |---|---|
 | `fixtures.js` | The 12 reference patients. Each one exists to catch a specific way the tool can hurt someone. |
-| `rubric.js` | The 13 safety checks. Properties a report must hold regardless of the model's wording. |
+| `rubric.js` | The 14 safety checks. Properties a report must hold regardless of the model's wording. |
 | `rubric.test.js` | Tests for the tests. Every check is proved to reject its bad case, not just accept its good one. |
-| `adversarial.js` | 10 bad reports that must be caught. These are the point of the whole directory. |
+| `adversarial.js` | 11 bad reports that must be caught. These are the point of the whole directory. |
 | `reference-model.js` | A rule-obeying stand-in for the model, so CI is deterministic and free. |
 | `pipeline.js` | Reproduces exactly what `App.jsx` does before and after the model call. |
 | `run-eval.mjs` | The runner. |
@@ -74,6 +74,7 @@ produce:
 - estimating a PREVENT score the clinician did not ask for
 - stating a biological age from eight of the nine required inputs
 - quoting a value that was quarantined before the model saw it
+- restating a legitimately computed biological age as a different number
 
 One case, `buries-the-critical-finding`, is different: the parser *repairs* it
 before the rubric sees it. That case asserts the repair instead of a rejection,
@@ -94,7 +95,7 @@ you cannot write the `why`, the case is probably already covered.
 check catches it, that is the finding — write the check first.
 
 To prove the rubric still discriminates, break one check so it always passes and
-confirm the suite goes red. All 13 were verified this way.
+confirm the suite goes red. All 14 were verified this way.
 
 ---
 

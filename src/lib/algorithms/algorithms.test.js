@@ -15,7 +15,8 @@ import {
   toDisplay, toSI, unitLabel, TO_CONV,
   PLAUSIBILITY, checkPlausibility, getImplausibleLabs,
   computeCompleteness, computeDomainCoverage, confidenceLabel, domainKeysForSex,
-  PHENOAGE_KEYS, phenoAgeEligible,
+  PHENOAGE_KEYS, phenoAgeEligible, missingPhenoAgeInputs,
+  calcPhenoAge, PHENOAGE_DISCLAIMER, PHENOAGE_MIN_AGE, PHENOAGE_MAX_AGE,
   calcPREVENT, PREVENT_DISCLAIMER, PREVENT_SEVERITY_ORDER,
 } from "./index.js";
 
@@ -399,5 +400,179 @@ describe("calcPREVENT", () => {
   test("the calibration caveat is available for the UI to surface", () => {
     expect(PREVENT_DISCLAIMER).toContain("approximation");
     expect(PREVENT_DISCLAIMER).toContain("tools.acc.org");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHENOTYPIC AGE  (PH1-ALG-03)
+// A biological age is the number a patient remembers and repeats. These cases
+// pin the arithmetic against the published worked example and pin the refusals,
+// because a wrong age here is quieter and more persuasive than a wrong lab.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Healthy adult, in Sano's SI storage. */
+const basePheno = {
+  albumin: "45", creatinine: "82", glucose: "5.1", hsCRP: "1.2",
+  lymphPct: "32", mcv: "89", rdw: "12.8", alp: "70", wbc: "5.8",
+};
+
+describe("calcPhenoAge — calibration", () => {
+  test("reproduces the published worked example exactly", () => {
+    // age 45, albumin 4.7 g/dL, creatinine 0.9 mg/dL, glucose 90 mg/dL,
+    // CRP 1 mg/L, lymph 32%, MCV 90, RDW 13%, ALP 65, WBC 6
+    // converted into SI, the units the Levine coefficients require.
+    const r = calcPhenoAge({
+      albumin: "47", creatinine: "79.56", glucose: "5.0", hsCRP: "1",
+      lymphPct: "32", mcv: "90", rdw: "13", alp: "65", wbc: "6",
+    }, 45);
+    expect(r.phenoAge).toBe("36.3");
+    expect(parseFloat(r.mortality10y)).toBeCloseTo(1.4, 1);
+    expect(r.delta).toBe("-8.7");
+  });
+
+  test("CRP is converted from mg/L to mg/dL before the logarithm", () => {
+    // Sano stores hs-CRP in mg/L; the coefficient wants mg/dL inside ln().
+    // Dropping the /10 shifts the result by about +2.4 years — small enough to
+    // look entirely believable, which is exactly why it needs a test.
+    const r = calcPhenoAge(basePheno, 50);
+    expect(r.phenoAge).toBe("41.1");
+
+    // A tenfold CRP difference must move the age by ln(10) * 0.0954 in xb.
+    const tenFold = calcPhenoAge({ ...basePheno, hsCRP: "12" }, 50);
+    const shift = parseFloat(tenFold.phenoAge) - parseFloat(r.phenoAge);
+    expect(shift).toBeGreaterThan(2);
+    expect(shift).toBeLessThan(3);
+  });
+
+  test("the delta is the phenotypic age minus the chronological age", () => {
+    const r = calcPhenoAge(basePheno, 50);
+    expect(parseFloat(r.delta)).toBeCloseTo(parseFloat(r.phenoAge) - 50, 1);
+    expect(r.deltaLabel).toMatch(/years$/);
+    expect(r.chronoAge).toBe("50");
+  });
+});
+
+describe("calcPhenoAge — each marker moves the age the right way", () => {
+  // Every one of the nine should push the age OLDER when it moves in the
+  // direction associated with worse health. A sign error in any coefficient
+  // would otherwise be invisible.
+  const base = parseFloat(calcPhenoAge(basePheno, 50).phenoAge);
+  const worse = {
+    albumin:    "40",   // lower albumin
+    creatinine: "120",  // higher creatinine
+    glucose:    "9.0",  // higher glucose
+    hsCRP:      "8",    // higher CRP
+    lymphPct:   "18",   // lower lymphocytes
+    mcv:        "98",   // higher MCV
+    rdw:        "16",   // higher RDW
+    alp:        "140",  // higher ALP
+    wbc:        "11",   // higher WBC
+  };
+  for (const [key, value] of Object.entries(worse)) {
+    test(`a worse ${key} makes the patient older`, () => {
+      const r = calcPhenoAge({ ...basePheno, [key]: value }, 50);
+      expect(parseFloat(r.phenoAge)).toBeGreaterThan(base);
+    });
+  }
+});
+
+describe("calcPhenoAge — refusals", () => {
+  test("eight of nine inputs produces nothing", () => {
+    // The whole point of the eligibility gate: an age from eight inputs is a
+    // number with no meaning, and it would be believed.
+    for (const k of PHENOAGE_KEYS) {
+      const incomplete = { ...basePheno };
+      delete incomplete[k];
+      expect(calcPhenoAge(incomplete, 50)).toBeNull();
+    }
+  });
+
+  test("a missing or unusable chronological age produces nothing", () => {
+    expect(calcPhenoAge(basePheno, "")).toBeNull();
+    expect(calcPhenoAge(basePheno, undefined)).toBeNull();
+    expect(calcPhenoAge(basePheno, "abc")).toBeNull();
+  });
+
+  test("ages outside the development range produce nothing", () => {
+    expect(calcPhenoAge(basePheno, PHENOAGE_MIN_AGE - 1)).toBeNull();
+    expect(calcPhenoAge(basePheno, PHENOAGE_MAX_AGE + 1)).toBeNull();
+    expect(calcPhenoAge(basePheno, PHENOAGE_MIN_AGE)).not.toBeNull();
+    expect(calcPhenoAge(basePheno, PHENOAGE_MAX_AGE)).not.toBeNull();
+  });
+
+  test("a non-positive CRP produces nothing rather than NaN", () => {
+    // ln(0) is -Infinity and ln(negative) is NaN; either would propagate
+    // silently into a displayed age.
+    expect(calcPhenoAge({ ...basePheno, hsCRP: "0" }, 50)).toBeNull();
+    expect(calcPhenoAge({ ...basePheno, hsCRP: "-1" }, 50)).toBeNull();
+  });
+
+  test("an unparseable value produces nothing", () => {
+    expect(calcPhenoAge({ ...basePheno, mcv: "abc" }, 50)).toBeNull();
+    expect(calcPhenoAge({ ...basePheno, rdw: "" }, 50)).toBeNull();
+  });
+
+  test("no labs at all produces nothing", () => {
+    expect(calcPhenoAge(null, 50)).toBeNull();
+    expect(calcPhenoAge({}, 50)).toBeNull();
+  });
+
+  test("never returns a number outside a reportable range", () => {
+    // Extremes must be withheld, not clamped to a plausible-looking age.
+    const extremes = [
+      { ...basePheno, glucose: "39", rdw: "39", wbc: "190", hsCRP: "190" },
+      { ...basePheno, albumin: "69", lymphPct: "94", rdw: "9.1" },
+    ];
+    for (const labs of extremes) {
+      const r = calcPhenoAge(labs, 50);
+      if (r !== null) {
+        expect(parseFloat(r.phenoAge)).toBeGreaterThan(10);
+        expect(parseFloat(r.phenoAge)).toBeLessThan(130);
+      }
+    }
+  });
+});
+
+describe("calcPhenoAge — interpretation", () => {
+  test("severity bands follow the size and sign of the gap", () => {
+    const younger = calcPhenoAge(basePheno, 60);          // healthy 60yo
+    expect(younger.severity).toBe("much-younger");
+    expect(younger.category).toMatch(/younger/i);
+
+    const older = calcPhenoAge({ ...basePheno, glucose: "11", rdw: "16.5", hsCRP: "9" }, 45);
+    expect(["older", "much-older"]).toContain(older.severity);
+  });
+
+  test("every result carries an interpretation and a source", () => {
+    const r = calcPhenoAge(basePheno, 50);
+    expect(r.interpretation.length).toBeGreaterThan(20);
+    expect(r.source).toMatch(/Levine/);
+  });
+
+  test("the disclaimer states what the number is not", () => {
+    expect(PHENOAGE_DISCLAIMER).toMatch(/not a measurement of biological age/i);
+    expect(PHENOAGE_DISCLAIMER).toMatch(/NHANES/);
+    expect(PHENOAGE_DISCLAIMER.length).toBeGreaterThan(150);
+  });
+});
+
+describe("missingPhenoAgeInputs", () => {
+  test("names exactly what is still needed, in clinician language", () => {
+    const labs = { ...basePheno };
+    delete labs.rdw;
+    delete labs.alp;
+    const missing = missingPhenoAgeInputs(labs);
+    expect(missing).toHaveLength(2);
+    expect(missing).toContain("RDW");
+    expect(missing).toContain("Alkaline Phosphatase");
+  });
+
+  test("returns nothing when the panel is complete", () => {
+    expect(missingPhenoAgeInputs(basePheno)).toEqual([]);
+  });
+
+  test("names all nine for an empty record", () => {
+    expect(missingPhenoAgeInputs({})).toHaveLength(9);
+    expect(missingPhenoAgeInputs(null)).toHaveLength(9);
   });
 });
