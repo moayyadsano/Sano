@@ -34,6 +34,9 @@
  *   SANO_API_SECRET    (optional, recommended) shared secret the frontend sends
  */
 
+import { generate, AiError, createBudget, PER_CALL_TIMEOUT_MS } from "./v1/_lib/aiClient.js";
+import { createUsageTracker, recordFailure } from "./v1/_lib/usage.js";
+
 export const maxDuration = 60; // allow up to 60s for AI response
 
 // Origins permitted to call this endpoint. Vercel preview deployments get
@@ -143,40 +146,43 @@ export default async function handler(req, res) {
     });
   }
 
+  // ── PH2-API-02 ──
+  // Previously this called fetch() with no timeout, so a hung upstream ran
+  // until Vercel killed the whole function at 60s. A killed function returns
+  // no body at all, which the frontend reported as a non-JSON response: the
+  // least actionable failure available. The client below bounds each call,
+  // retries once where retrying can help, and always returns a real body.
+  const requestId = (globalThis.crypto && globalThis.crypto.randomUUID)
+    ? globalThis.crypto.randomUUID() : "req_" + Date.now().toString(36);
+  res.setHeader("X-Request-Id", requestId);
+
+  const usage = createUsageTracker({ requestId });
+  const budget = createBudget();
+
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 800,
-        messages: [{ role: "user", content: prompt }],
-      }),
+    const result = await generate(prompt, {
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      budget,
+      timeoutMs: PER_CALL_TIMEOUT_MS,
+      onUsage: (u) => usage.record(u),
+      label: "report-step",
     });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: data?.error?.message || "Anthropic API error",
-        detail: data,
-      });
-    }
-
-    if (!data.content || !Array.isArray(data.content)) {
-      return res.status(500).json({ error: "Unexpected Anthropic response shape", detail: data });
-    }
-
-    const text = data.content.map((b) => b.text || "").join("").trim();
-    return res.status(200).json({ text });
+    usage.flush({ outcome: "success" });
+    return res.status(200).json({ text: result.text });
 
   } catch (err) {
-    console.error("Anthropic proxy error:", err);
-    return res.status(500).json({ error: err.message });
+    const e = err instanceof AiError ? err : new AiError("INTERNAL_ERROR", "Analysis failed.", { detail: String(err) });
+    recordFailure({ requestId, step: "generate", error: e, budgetSpentMs: budget.spent() });
+    usage.flush({ outcome: "failed", errorCode: e.code });
+
+    // Map to an HTTP status the frontend can act on, and return a message
+    // that is true and safe to show. No upstream payloads, no stack traces.
+    const status = e.code === "AI_TIMEOUT" ? 504
+                 : e.code === "AI_UNAVAILABLE" ? 503
+                 : e.code === "NOT_CONFIGURED" ? 500
+                 : e.code === "VALIDATION_FAILED" ? 400
+                 : 502;
+    return res.status(status).json({ error: e.message, code: e.code, requestId });
   }
 }
 
